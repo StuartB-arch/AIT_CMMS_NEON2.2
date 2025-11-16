@@ -1235,9 +1235,32 @@ def generate_monthly_summary_report(conn, month=None, year=None):
         WHERE EXTRACT(YEAR FROM reported_date::date) = %s
         AND EXTRACT(MONTH FROM reported_date::date) = %s
     ''', (year, month))
-    
+
     cf_count = cursor.fetchone()[0] or 0
-    
+
+    # Get Mark as Found entries for this month
+    cursor.execute('''
+        SELECT COUNT(*)
+        FROM cannot_find_assets
+        WHERE EXTRACT(YEAR FROM found_date::date) = %s
+        AND EXTRACT(MONTH FROM found_date::date) = %s
+        AND status = 'Found'
+    ''', (year, month))
+
+    found_count = cursor.fetchone()[0] or 0
+
+    # Get details of Mark as Found assets for this month
+    cursor.execute('''
+        SELECT bfm_equipment_no, description, location, reported_date, found_date, found_by
+        FROM cannot_find_assets
+        WHERE EXTRACT(YEAR FROM found_date::date) = %s
+        AND EXTRACT(MONTH FROM found_date::date) = %s
+        AND status = 'Found'
+        ORDER BY found_date DESC
+    ''', (year, month))
+
+    found_assets = cursor.fetchall()
+
     # Get Run to Failure entries count (separate)
     cursor.execute('''
         SELECT COUNT(*)
@@ -1635,9 +1658,27 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     # Display Cannot Find and Run to Failure separately
     print("OTHER ACTIVITY:")
     print(f"  Cannot Find Entries: {cf_count}")
+    print(f"  Mark as Found Entries: {found_count}")
     print(f"  Run to Failure Entries: {rtf_count}")
     print(f"  Total All Activity: {pm_completions + cf_count + rtf_count}")
     print()
+
+    # Display detailed Mark as Found list if any assets were found this month
+    if found_count > 0:
+        print("MARK AS FOUND ASSETS DETAILS:")
+        print(f"{'BFM Number':<15} {'Description':<30} {'Location':<20} {'Reported Date':<15} {'Found Date':<15} {'Found By':<15}")
+        print("-" * 120)
+        for asset in found_assets:
+            bfm_no = asset[0] or 'N/A'
+            desc = (asset[1][:27] + '...') if asset[1] and len(asset[1]) > 30 else (asset[1] or 'N/A')
+            loc = (asset[2][:17] + '...') if asset[2] and len(asset[2]) > 20 else (asset[2] or 'N/A')
+            reported = asset[3] or 'N/A'
+            found_date = asset[4] or 'N/A'
+            found_by = asset[5] or 'N/A'
+            print(f"{bfm_no:<15} {desc:<30} {loc:<20} {reported:<15} {found_date:<15} {found_by:<15}")
+        print()
+        print(f"Total Mark as Found Assets: {found_count}")
+        print()
     
     
     
@@ -2217,6 +2258,26 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             AND (status = 'Closed' OR status = 'Completed')
         ''', (year, month))
         cms_closed = cursor.fetchone()[0] or 0
+
+        # Get Mark as Found data for this month
+        cursor.execute('''
+            SELECT COUNT(*) FROM cannot_find_assets
+            WHERE EXTRACT(YEAR FROM found_date::date) = %s
+            AND EXTRACT(MONTH FROM found_date::date) = %s
+            AND status = 'Found'
+        ''', (year, month))
+        found_count = cursor.fetchone()[0] or 0
+
+        # Get details of Mark as Found assets for this month
+        cursor.execute('''
+            SELECT bfm_equipment_no, description, location, reported_date, found_date, found_by
+            FROM cannot_find_assets
+            WHERE EXTRACT(YEAR FROM found_date::date) = %s
+            AND EXTRACT(MONTH FROM found_date::date) = %s
+            AND status = 'Found'
+            ORDER BY found_date DESC
+        ''', (year, month))
+        found_assets = cursor.fetchall()
         
         # Summary highlights table
         summary_data = [
@@ -3028,7 +3089,71 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             ]))
         
             story.append(daily_table)
-    
+
+        # ==================== MARK AS FOUND ASSETS ====================
+        if found_count > 0:
+            story.append(Spacer(1, 25))
+            story.append(Paragraph("MARK AS FOUND ASSETS", heading_style))
+            story.append(Spacer(1, 10))
+
+            # Summary paragraph
+            story.append(Paragraph(
+                f"<b>{found_count}</b> asset(s) were marked as found and reactivated during {month_name} {year}.",
+                body_style
+            ))
+            story.append(Spacer(1, 15))
+
+            # Build table of found assets
+            found_data = [['BFM Number', 'Description', 'Location', 'Reported Date', 'Found Date', 'Found By']]
+
+            for asset in found_assets:
+                bfm_no = asset[0] or 'N/A'
+                desc = asset[1] or 'N/A'
+                # Truncate description if too long
+                if len(desc) > 25:
+                    desc = desc[:22] + '...'
+                loc = asset[2] or 'N/A'
+                # Truncate location if too long
+                if len(loc) > 15:
+                    loc = loc[:12] + '...'
+                reported = str(asset[3])[:10] if asset[3] else 'N/A'
+                found_date = str(asset[4])[:10] if asset[4] else 'N/A'
+                found_by = asset[5] or 'N/A'
+                # Truncate found_by if too long
+                if len(found_by) > 12:
+                    found_by = found_by[:9] + '...'
+
+                found_data.append([bfm_no, desc, loc, reported, found_date, found_by])
+
+            found_table = Table(found_data, colWidths=[1.0*inch, 1.5*inch, 1.0*inch, 1.0*inch, 1.0*inch, 0.9*inch])
+            found_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c5282')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f7fafc')])
+            ]))
+
+            story.append(found_table)
+            story.append(Spacer(1, 10))
+
+            # Add summary note
+            story.append(Paragraph(
+                f"<i>Note: These assets were previously reported as 'Cannot Find' and have been successfully "
+                f"located and reactivated for preventive maintenance scheduling.</i>",
+                ParagraphStyle('NoteStyle', parent=body_style, fontSize=9,
+                             textColor=colors.HexColor('#718096'), alignment=TA_LEFT)
+            ))
+
         # ==================== BUILD PDF ====================
         doc.build(story)
     
@@ -12704,8 +12829,17 @@ class AITCMMSSystem:
                     bfm_no
                 ))
 
-                # Delete from cannot_find_assets table (not just update status)
-                cursor.execute('DELETE FROM cannot_find_assets WHERE bfm_equipment_no = %s', (bfm_no,))
+                # Update cannot_find_assets record instead of deleting (for historical tracking)
+                # Mark as Found with date and user
+                found_by = getattr(self, 'current_user', 'System')  # Get current user if available
+                cursor.execute('''
+                    UPDATE cannot_find_assets
+                    SET status = 'Found',
+                        found_date = CURRENT_DATE,
+                        found_by = %s,
+                        updated_date = CURRENT_TIMESTAMP
+                    WHERE bfm_equipment_no = %s
+                ''', (found_by, bfm_no))
 
                 self.conn.commit()
 
