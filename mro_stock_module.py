@@ -860,7 +860,7 @@ class MROStockManager:
         scrollbar.pack(side="right", fill="y")
     
     def delete_selected_part(self):
-        """Delete selected part"""
+        """Delete selected part or mark as inactive if it has transaction history"""
         selected = self.mro_tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select a part to delete")
@@ -870,23 +870,73 @@ class MROStockManager:
         part_number = str(item['values'][0])  # Convert to string to avoid type mismatch
         part_name = item['values'][1]
 
-        result = messagebox.askyesno("Confirm Delete",
-                                    f"Are you sure you want to delete:\n\n"
-                                    f"Part Number: {part_number}\n"
-                                    f"Name: {part_name}\n\n"
-                                    f"This action cannot be undone!")
+        try:
+            cursor = self.conn.cursor()
 
-        if result:
-            try:
-                cursor = self.conn.cursor()
-                cursor.execute('DELETE FROM mro_inventory WHERE part_number = %s', (part_number,))
-                self.conn.commit()
-                cursor.close()
-                messagebox.showinfo("Success", "Part deleted successfully!")
-                self.refresh_mro_list()
-            except Exception as e:
-                self.conn.rollback()
-                messagebox.showerror("Error", f"Failed to delete part: {str(e)}")
+            # Check if part has any transaction history
+            cursor.execute(
+                'SELECT COUNT(*) FROM mro_stock_transactions WHERE part_number = %s',
+                (part_number,)
+            )
+            transaction_count = cursor.fetchone()[0]
+
+            # Check if part has been used in CM work orders
+            cursor.execute(
+                'SELECT COUNT(*) FROM cm_parts_used WHERE part_number = %s',
+                (part_number,)
+            )
+            cm_usage_count = cursor.fetchone()[0]
+
+            total_history = transaction_count + cm_usage_count
+
+            if total_history > 0:
+                # Part has history - offer to mark as inactive instead
+                result = messagebox.askyesno(
+                    "Part Has Transaction History",
+                    f"Part '{part_name}' (#{part_number}) has transaction history:\n\n"
+                    f"• {transaction_count} stock transaction(s)\n"
+                    f"• {cm_usage_count} CM work order usage(s)\n\n"
+                    f"To preserve historical data, this part cannot be deleted.\n\n"
+                    f"Would you like to mark it as INACTIVE instead?\n"
+                    f"(It will be hidden from active inventory but history will be preserved)"
+                )
+
+                if result:
+                    cursor.execute(
+                        "UPDATE mro_inventory SET status = 'Inactive' WHERE part_number = %s",
+                        (part_number,)
+                    )
+                    self.conn.commit()
+                    messagebox.showinfo("Success",
+                                      f"Part '{part_name}' marked as INACTIVE.\n\n"
+                                      f"Transaction history preserved.")
+                    self.refresh_mro_list()
+                else:
+                    cursor.close()
+                    return
+            else:
+                # No history - safe to delete permanently
+                result = messagebox.askyesno("Confirm Delete",
+                                            f"Are you sure you want to permanently delete:\n\n"
+                                            f"Part Number: {part_number}\n"
+                                            f"Name: {part_name}\n\n"
+                                            f"This part has no transaction history.\n"
+                                            f"This action cannot be undone!")
+
+                if result:
+                    cursor.execute('DELETE FROM mro_inventory WHERE part_number = %s', (part_number,))
+                    self.conn.commit()
+                    messagebox.showinfo("Success", "Part deleted successfully!")
+                    self.refresh_mro_list()
+                else:
+                    cursor.close()
+                    return
+
+            cursor.close()
+
+        except Exception as e:
+            self.conn.rollback()
+            messagebox.showerror("Error", f"Failed to delete/deactivate part: {str(e)}")
     
     
     def view_part_details(self):
