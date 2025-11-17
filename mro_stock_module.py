@@ -869,20 +869,23 @@ class MROStockManager:
         item = self.mro_tree.item(selected[0])
         part_number = str(item['values'][0])  # Convert to string to avoid type mismatch
         part_name = item['values'][1]
-        
-        result = messagebox.askyesno("Confirm Delete", 
+
+        result = messagebox.askyesno("Confirm Delete",
                                     f"Are you sure you want to delete:\n\n"
                                     f"Part Number: {part_number}\n"
                                     f"Name: {part_name}\n\n"
                                     f"This action cannot be undone!")
-        
+
         if result:
             try:
-                with db_pool.get_cursor(commit=True) as cursor:
-                    cursor.execute('DELETE FROM mro_inventory WHERE part_number = %s', (part_number,))
+                cursor = self.conn.cursor()
+                cursor.execute('DELETE FROM mro_inventory WHERE part_number = %s', (part_number,))
+                self.conn.commit()
+                cursor.close()
                 messagebox.showinfo("Success", "Part deleted successfully!")
                 self.refresh_mro_list()
             except Exception as e:
+                self.conn.rollback()
                 messagebox.showerror("Error", f"Failed to delete part: {str(e)}")
     
     

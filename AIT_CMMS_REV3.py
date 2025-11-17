@@ -13742,12 +13742,57 @@ class AITCMMSSystem:
         ttk.Label(dialog, text="Equipment (BFM):").grid(row=row, column=0, sticky='w', padx=10, pady=5)
         bfm_var = tk.StringVar()
 
+        # Create a new cursor for equipment query
+        cursor = self.conn.cursor()
         cursor.execute("SELECT DISTINCT bfm_equipment_no FROM equipment WHERE status = 'Active' ORDER BY bfm_equipment_no")
         equipment_list = [row_data[0] for row_data in cursor.fetchall()]
+        cursor.close()
 
         bfm_combo = ttk.Combobox(dialog, textvariable=bfm_var, values=equipment_list, width=20)
         bfm_combo.grid(row=row, column=1, sticky='w', padx=10, pady=5)
         row += 1
+
+        # SAP Material Number (auto-populated, read-only)
+        ttk.Label(dialog, text="SAP Material No:").grid(row=row, column=0, sticky='w', padx=10, pady=5)
+        sap_var = tk.StringVar()
+        sap_entry = ttk.Entry(dialog, textvariable=sap_var, width=20, state='readonly')
+        sap_entry.grid(row=row, column=1, sticky='w', padx=10, pady=5)
+        row += 1
+
+        # Tool ID / Drawing Number (auto-populated, read-only)
+        ttk.Label(dialog, text="Tool ID / Drawing No:").grid(row=row, column=0, sticky='w', padx=10, pady=5)
+        tool_id_var = tk.StringVar()
+        tool_id_entry = ttk.Entry(dialog, textvariable=tool_id_var, width=20, state='readonly')
+        tool_id_entry.grid(row=row, column=1, sticky='w', padx=10, pady=5)
+        row += 1
+
+        # Function to auto-populate SAP and Tool ID when BFM is selected
+        def on_bfm_selected(event=None):
+            """Auto-populate SAP and Tool ID when equipment is selected"""
+            selected_bfm = bfm_var.get()
+            if selected_bfm:
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute(
+                        "SELECT sap_material_no, tool_id_drawing_no FROM equipment WHERE bfm_equipment_no = %s",
+                        (selected_bfm,)
+                    )
+                    result = cursor.fetchone()
+                    cursor.close()
+
+                    if result:
+                        sap_var.set(result[0] or 'N/A')
+                        tool_id_var.set(result[1] or 'N/A')
+                    else:
+                        sap_var.set('N/A')
+                        tool_id_var.set('N/A')
+                except Exception as e:
+                    print(f"Error fetching equipment details: {e}")
+                    sap_var.set('N/A')
+                    tool_id_var.set('N/A')
+
+        # Bind the selection event to auto-populate fields
+        bfm_combo.bind('<<ComboboxSelected>>', on_bfm_selected)
 
         # Description
         ttk.Label(dialog, text="Description:").grid(row=row, column=0, sticky='nw', padx=10, pady=5)
