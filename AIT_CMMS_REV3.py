@@ -12823,9 +12823,9 @@ class AITCMMSSystem:
                     updated_date = CURRENT_TIMESTAMP
                     WHERE bfm_equipment_no = %s
                 ''', (
-                    1 if monthly_var.get() else 0,
-                    1 if six_month_var.get() else 0,
-                    1 if annual_var.get() else 0,
+                    True if monthly_var.get() else False,
+                    True if six_month_var.get() else False,
+                    True if annual_var.get() else False,
                     bfm_no
                 ))
 
@@ -13076,9 +13076,9 @@ class AITCMMSSystem:
                             updated_date = CURRENT_TIMESTAMP
                             WHERE bfm_equipment_no = %s
                         ''', (
-                            1 if monthly_var.get() else 0,
-                            1 if six_month_var.get() else 0,
-                            1 if annual_var.get() else 0,
+                            True if monthly_var.get() else False,
+                            True if six_month_var.get() else False,
+                            True if annual_var.get() else False,
                             bfm_no
                         ))
                     
