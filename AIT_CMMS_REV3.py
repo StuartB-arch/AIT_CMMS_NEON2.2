@@ -1212,7 +1212,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     print()
     
     # 1. OVERALL MONTHLY SUMMARY - PM COMPLETIONS ONLY
-    # Get PM completions count
+    # Get PM completions count - ONLY for PMs assigned AND completed in the same month
     cursor.execute('''
         SELECT
             COUNT(*) as total_completions,
@@ -1221,12 +1221,31 @@ def generate_monthly_summary_report(conn, month=None, year=None):
         FROM pm_completions
         WHERE EXTRACT(YEAR FROM completion_date::date) = %s
         AND EXTRACT(MONTH FROM completion_date::date) = %s
-    ''', (year, month))
-    
+        AND EXTRACT(YEAR FROM pm_due_date::date) = %s
+        AND EXTRACT(MONTH FROM pm_due_date::date) = %s
+    ''', (year, month, year, month))
+
     pm_results = cursor.fetchone()
     pm_completions = pm_results[0] or 0
     pm_total_hours = pm_results[1] or 0.0
     pm_avg_hours = pm_results[2] or 0.0
+
+    # Get PMs assigned BEFORE this month but completed this month (Outstanding Completions)
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total_completions,
+            SUM(labor_hours + labor_minutes/60.0) as total_hours,
+            AVG(labor_hours + labor_minutes/60.0) as avg_hours
+        FROM pm_completions
+        WHERE EXTRACT(YEAR FROM completion_date::date) = %s
+        AND EXTRACT(MONTH FROM completion_date::date) = %s
+        AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+    ''', (year, month, year, month))
+
+    outstanding_results = cursor.fetchone()
+    outstanding_completions = outstanding_results[0] or 0
+    outstanding_total_hours = outstanding_results[1] or 0.0
+    outstanding_avg_hours = outstanding_results[2] or 0.0
     
     # Get Cannot Find entries count (separate)
     cursor.execute('''
@@ -1494,8 +1513,8 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     MONTHLY_AVAILABLE_HOURS = (TOTAL_TECHNICIANS * ANNUAL_HOURS_PER_TECHNICIAN) / 12  # 1485.0 hours
     TARGET_EFFICIENCY_RATE = 80.0
 
-    # Calculate total maintenance hours (PM + CM)
-    total_maintenance_hours = pm_total_hours + cm_total_hours
+    # Calculate total maintenance hours (PM + Outstanding PM + CM)
+    total_maintenance_hours = pm_total_hours + outstanding_total_hours + cm_total_hours
 
     # Calculate efficiency rate
     efficiency_rate = (total_maintenance_hours / MONTHLY_AVAILABLE_HOURS) * 100 if MONTHLY_AVAILABLE_HOURS > 0 else 0.0
@@ -1508,7 +1527,8 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     print("OVERALL MAINTENANCE EFFICIENCY")
     print("=" * 80)
     print()
-    print(f"  Total PM Hours: {pm_total_hours:.1f} hours")
+    print(f"  Total PM Hours (Assigned This Month): {pm_total_hours:.1f} hours")
+    print(f"  Total Outstanding PM Hours: {outstanding_total_hours:.1f} hours")
     print(f"  Total CM Hours: {cm_total_hours:.1f} hours")
     print(f"  Total Maintenance Hours: {total_maintenance_hours:.1f} hours")
     print()
@@ -1647,12 +1667,70 @@ def generate_monthly_summary_report(conn, month=None, year=None):
             print(f"{cm_number:<12} {created_short:<12} {completed_short:<12} {bfm_short:<15} {tech_short:<20}")
     
         print()
-    
+
+    # NEW: Show details of PMs assigned before this month but completed this month (Outstanding Completions)
+    if outstanding_completions > 0:
+        print("=" * 120)
+        print(f"OUTSTANDING PM COMPLETIONS - ASSIGNED BEFORE {month_name.upper()} BUT COMPLETED IN {month_name.upper()}:")
+        print("=" * 120)
+        print()
+
+        cursor.execute('''
+            SELECT
+                bfm_equipment_no,
+                pm_type,
+                pm_due_date,
+                completion_date,
+                technician_name,
+                labor_hours,
+                labor_minutes,
+                notes
+            FROM pm_completions
+            WHERE EXTRACT(YEAR FROM completion_date::date) = %s
+            AND EXTRACT(MONTH FROM completion_date::date) = %s
+            AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+            ORDER BY technician_name, completion_date
+        ''', (year, month, year, month))
+
+        outstanding_pms = cursor.fetchall()
+
+        print(f"{'Equipment':<18} {'PM Type':<12} {'Assigned':<12} {'Completed':<12} {'Labor Hrs':<12} {'Technician':<20}")
+        print("-" * 120)
+
+        for bfm_no, pm_type, assigned_date, completed_date, tech, labor_hrs, labor_mins, notes in outstanding_pms:
+            assigned_short = str(assigned_date)[:10] if assigned_date else "Unknown"
+            completed_short = str(completed_date)[:10] if completed_date else "Unknown"
+            bfm_short = (bfm_no[:18] if bfm_no else "N/A")
+            tech_short = (tech[:20] if tech else "Unassigned")
+            pm_type_short = (pm_type[:12] if pm_type else "N/A")
+            total_hours = (labor_hrs or 0) + ((labor_mins or 0) / 60.0)
+            hours_str = f"{total_hours:.1f}h"
+
+            print(f"{bfm_short:<18} {pm_type_short:<12} {assigned_short:<12} {completed_short:<12} {hours_str:<12} {tech_short:<20}")
+
+            # Display notes/description if available
+            if notes and notes.strip():
+                note_lines = notes.strip().split('\n')
+                for line in note_lines[:3]:  # Show first 3 lines of notes
+                    truncated_note = (line[:110] + '...') if len(line) > 110 else line
+                    print(f"  Note: {truncated_note}")
+
+        print()
+        print(f"Total Outstanding Completions: {outstanding_completions}")
+        print(f"Total Labor Hours (Outstanding): {outstanding_total_hours:.1f} hours")
+        print()
+
     # Display PM Completions (NOT including Cannot Find or Run to Failure)
     print("MONTHLY OVERVIEW:")
-    print(f"  Total PM Completions: {pm_completions}")
-    print(f"  Total Labor Hours: {pm_total_hours:.1f} hours")
-    print(f"  Average Hours per PM: {pm_avg_hours:.1f} hours")
+    print(f"  PM Completions (Assigned & Completed in {month_name}): {pm_completions}")
+    print(f"    - Total Labor Hours: {pm_total_hours:.1f} hours")
+    print(f"    - Average Hours per PM: {pm_avg_hours:.1f} hours")
+    print()
+    print(f"  Outstanding Completions (Assigned Before {month_name}, Completed in {month_name}): {outstanding_completions}")
+    print(f"    - Total Labor Hours: {outstanding_total_hours:.1f} hours")
+    print(f"    - Average Hours per PM: {outstanding_avg_hours:.1f} hours")
+    print()
+    print(f"  TOTAL PMs Completed in {month_name}: {pm_completions + outstanding_completions}")
     print()
     
     # Display Cannot Find and Run to Failure separately
@@ -2101,13 +2179,17 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     
     return {
         'pm_completions': pm_completions,
+        'outstanding_completions': outstanding_completions,
+        'total_pm_completions': pm_completions + outstanding_completions,
         'cannot_find_count': cf_count,
         'run_to_failure_count': rtf_count,
         'cms_created': cms_created,
         'cms_closed': cms_closed,
         'cms_open_current': cms_open_current,
         'total_hours': pm_total_hours,
+        'outstanding_hours': outstanding_total_hours,
         'avg_hours': pm_avg_hours,
+        'outstanding_avg_hours': outstanding_avg_hours,
         'month': month_name,
         'year': year
     }
@@ -2229,7 +2311,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         story.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
         story.append(Spacer(1, 10))
     
-        # Get summary data
+        # Get summary data - ONLY PMs assigned AND completed in the same month
         cursor.execute('''
             SELECT
                 COUNT(*) as total_completions,
@@ -2238,12 +2320,31 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             FROM pm_completions
             WHERE EXTRACT(YEAR FROM completion_date::date) = %s
             AND EXTRACT(MONTH FROM completion_date::date) = %s
-        ''', (year, month))
-    
+            AND EXTRACT(YEAR FROM pm_due_date::date) = %s
+            AND EXTRACT(MONTH FROM pm_due_date::date) = %s
+        ''', (year, month, year, month))
+
         pm_results = cursor.fetchone()
         pm_completions = pm_results[0] or 0
         pm_total_hours = pm_results[1] or 0.0
         pm_avg_hours = pm_results[2] or 0.0
+
+        # Get Outstanding Completions (assigned before, completed this month)
+        cursor.execute('''
+            SELECT
+                COUNT(*) as total_completions,
+                SUM(labor_hours + labor_minutes/60.0) as total_hours,
+                AVG(labor_hours + labor_minutes/60.0) as avg_hours
+            FROM pm_completions
+            WHERE EXTRACT(YEAR FROM completion_date::date) = %s
+            AND EXTRACT(MONTH FROM completion_date::date) = %s
+            AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+        ''', (year, month, year, month))
+
+        outstanding_results = cursor.fetchone()
+        outstanding_completions = outstanding_results[0] or 0
+        outstanding_total_hours = outstanding_results[1] or 0.0
+        outstanding_avg_hours = outstanding_results[2] or 0.0
     
         # Get CM data
         cursor.execute('''
@@ -2282,9 +2383,12 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         # Summary highlights table
         summary_data = [
             ['METRIC', 'VALUE'],
-            ['PM Completions', f'{pm_completions:,}'],
-            ['Total Labor Hours', f'{pm_total_hours:.1f} hrs'],
-            ['Average Time per PM', f'{pm_avg_hours:.1f} hrs'],
+            ['PM Completions (Assigned & Completed This Month)', f'{pm_completions:,}'],
+            ['Outstanding Completions (Assigned Before, Completed This Month)', f'{outstanding_completions:,}'],
+            ['Total PMs Completed This Month', f'{pm_completions + outstanding_completions:,}'],
+            ['PM Labor Hours (This Month Assigned)', f'{pm_total_hours:.1f} hrs'],
+            ['Outstanding Labor Hours', f'{outstanding_total_hours:.1f} hrs'],
+            ['Average Time per PM (This Month Assigned)', f'{pm_avg_hours:.1f} hrs'],
             ['CMs Created', f'{cms_created:,}'],
             ['CMs Closed', f'{cms_closed:,}']
         ]
@@ -2311,7 +2415,81 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
     
         story.append(summary_table)
         story.append(Spacer(1, 25))
-        
+
+        # ==================== OUTSTANDING PM COMPLETIONS DETAIL ====================
+        if outstanding_completions > 0:
+            story.append(Paragraph(f"OUTSTANDING PM COMPLETIONS", heading_style))
+            story.append(Paragraph(f"PMs Assigned Before {month_name} but Completed in {month_name}", subheading_style))
+            story.append(Spacer(1, 10))
+
+            # Get detailed outstanding PM data
+            cursor.execute('''
+                SELECT
+                    bfm_equipment_no,
+                    pm_type,
+                    pm_due_date,
+                    completion_date,
+                    technician_name,
+                    labor_hours,
+                    labor_minutes
+                FROM pm_completions
+                WHERE EXTRACT(YEAR FROM completion_date::date) = %s
+                AND EXTRACT(MONTH FROM completion_date::date) = %s
+                AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+                ORDER BY technician_name, completion_date
+            ''', (year, month, year, month))
+
+            outstanding_pms = cursor.fetchall()
+
+            # Build outstanding PMs table
+            outstanding_table_data = [
+                ['Equipment', 'PM Type', 'Assigned', 'Completed', 'Labor Hrs', 'Technician']
+            ]
+
+            for bfm_no, pm_type, assigned_date, completed_date, tech, labor_hrs, labor_mins in outstanding_pms:
+                assigned_short = str(assigned_date)[:10] if assigned_date else "Unknown"
+                completed_short = str(completed_date)[:10] if completed_date else "Unknown"
+                bfm_short = (bfm_no[:12] if bfm_no else "N/A")
+                tech_short = (tech[:15] if tech else "Unassigned")
+                pm_type_short = (pm_type[:10] if pm_type else "N/A")
+                total_hours = (labor_hrs or 0) + ((labor_mins or 0) / 60.0)
+                hours_str = f"{total_hours:.1f}h"
+
+                outstanding_table_data.append([
+                    bfm_short, pm_type_short, assigned_short, completed_short, hours_str, tech_short
+                ])
+
+            outstanding_table = Table(outstanding_table_data, colWidths=[1.2*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.7*inch, 1.2*inch])
+            outstanding_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e53e3e')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 9),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#cbd5e0')),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fff5f5')])
+            ]))
+
+            story.append(outstanding_table)
+            story.append(Spacer(1, 10))
+
+            # Add summary note
+            summary_note = Paragraph(
+                f"<b>Total Outstanding Completions:</b> {outstanding_completions} | "
+                f"<b>Total Labor Hours:</b> {outstanding_total_hours:.1f} hrs",
+                body_style
+            )
+            story.append(summary_note)
+            story.append(Spacer(1, 25))
+
         # ==================== CORRECTIVE MAINTENANCE DETAIL ====================
         story.append(Paragraph("CORRECTIVE MAINTENANCE ANALYSIS", heading_style))
         story.append(Spacer(1, 10))
@@ -2444,8 +2622,8 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         MONTHLY_AVAILABLE_HOURS = (TOTAL_TECHNICIANS * ANNUAL_HOURS_PER_TECHNICIAN) / 12  # 1485.0 hours
         TARGET_EFFICIENCY_RATE = 80.0
 
-        # Calculate total maintenance hours (PM + CM)
-        total_maintenance_hours = pm_total_hours + cm_total_hours
+        # Calculate total maintenance hours (PM + Outstanding PM + CM)
+        total_maintenance_hours = pm_total_hours + outstanding_total_hours + cm_total_hours
 
         # Calculate efficiency rate
         efficiency_rate = (total_maintenance_hours / MONTHLY_AVAILABLE_HOURS) * 100 if MONTHLY_AVAILABLE_HOURS > 0 else 0.0
