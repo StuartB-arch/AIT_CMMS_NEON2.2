@@ -6081,17 +6081,42 @@ class AITCMMSSystem:
             return None
 
     def update_pm_completion_form_with_template(self):
-        """Update PM completion form when equipment is selected"""
+        """Update PM completion form when equipment is selected
+
+        OPTION B: Auto-populate PM Due Date with scheduled_date from weekly_pm_schedules
+        This ensures technicians don't have to manually enter the scheduled date,
+        and the completion gets properly categorized in monthly reports.
+        """
         bfm_no = self.completion_bfm_var.get().strip()
         pm_type = self.pm_type_var.get()
-    
+
         if bfm_no and pm_type:
+            # OPTION B: Auto-populate PM Due Date with scheduled_date from weekly_pm_schedules
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT scheduled_date, week_start_date
+                    FROM weekly_pm_schedules
+                    WHERE bfm_equipment_no = %s AND pm_type = %s
+                    ORDER BY week_start_date DESC
+                    LIMIT 1
+                ''', (bfm_no, pm_type))
+
+                schedule_result = cursor.fetchone()
+                if schedule_result and schedule_result[0]:
+                    scheduled_date = schedule_result[0]
+                    # Auto-populate PM Due Date field with the scheduled date
+                    self.pm_due_date_var.set(scheduled_date)
+                    self.update_status(f"PM Due Date auto-populated with scheduled date: {scheduled_date}")
+            except Exception as e:
+                print(f"Warning: Could not retrieve scheduled date: {e}")
+
             template = self.get_pm_template_for_equipment(bfm_no, pm_type)
             if template:
                 # Update estimated hours
                 self.labor_hours_var.set(str(int(template['estimated_hours'])))
                 self.labor_minutes_var.set(str(int((template['estimated_hours'] % 1) * 60)))
-            
+
                 # Show template info
                 self.update_status(f"Custom template found for {bfm_no} - {pm_type} PM")
             else:
@@ -8610,17 +8635,42 @@ class AITCMMSSystem:
             return None
 
     def update_pm_completion_form_with_template(self):
-        """Update PM completion form when equipment is selected"""
+        """Update PM completion form when equipment is selected
+
+        OPTION B: Auto-populate PM Due Date with scheduled_date from weekly_pm_schedules
+        This ensures technicians don't have to manually enter the scheduled date,
+        and the completion gets properly categorized in monthly reports.
+        """
         bfm_no = self.completion_bfm_var.get().strip()
         pm_type = self.pm_type_var.get()
-    
+
         if bfm_no and pm_type:
+            # OPTION B: Auto-populate PM Due Date with scheduled_date from weekly_pm_schedules
+            try:
+                cursor = self.conn.cursor()
+                cursor.execute('''
+                    SELECT scheduled_date, week_start_date
+                    FROM weekly_pm_schedules
+                    WHERE bfm_equipment_no = %s AND pm_type = %s
+                    ORDER BY week_start_date DESC
+                    LIMIT 1
+                ''', (bfm_no, pm_type))
+
+                schedule_result = cursor.fetchone()
+                if schedule_result and schedule_result[0]:
+                    scheduled_date = schedule_result[0]
+                    # Auto-populate PM Due Date field with the scheduled date
+                    self.pm_due_date_var.set(scheduled_date)
+                    self.update_status(f"PM Due Date auto-populated with scheduled date: {scheduled_date}")
+            except Exception as e:
+                print(f"Warning: Could not retrieve scheduled date: {e}")
+
             template = self.get_pm_template_for_equipment(bfm_no, pm_type)
             if template:
                 # Update estimated hours
                 self.labor_hours_var.set(str(int(template['estimated_hours'])))
                 self.labor_minutes_var.set(str(int((template['estimated_hours'] % 1) * 60)))
-            
+
                 # Show template info
                 self.update_status(f"Custom template found for {bfm_no} - {pm_type} PM")
             else:
@@ -10159,8 +10209,8 @@ class AITCMMSSystem:
         ttk.Label(time_frame, text="minutes").pack(side='left', padx=5)
         row += 1
         
-        # PM Due Date
-        ttk.Label(form_frame, text="PM Due Date:").grid(row=row, column=0, sticky='w', pady=5)
+        # PM Due Date (OPTION B: auto-populated from scheduled_date)
+        ttk.Label(form_frame, text="PM Due Date (auto-filled from schedule):").grid(row=row, column=0, sticky='w', pady=5)
         self.pm_due_date_var = tk.StringVar()
         ttk.Entry(form_frame, textvariable=self.pm_due_date_var, width=20).grid(row=row, column=1, sticky='w', padx=5, pady=5)
         row += 1
