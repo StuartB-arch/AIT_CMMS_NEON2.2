@@ -1221,6 +1221,8 @@ def generate_monthly_summary_report(conn, month=None, year=None):
         FROM pm_completions
         WHERE EXTRACT(YEAR FROM completion_date::date) = %s
         AND EXTRACT(MONTH FROM completion_date::date) = %s
+        AND pm_due_date IS NOT NULL
+        AND pm_due_date != ''
         AND EXTRACT(YEAR FROM pm_due_date::date) = %s
         AND EXTRACT(MONTH FROM pm_due_date::date) = %s
     ''', (year, month, year, month))
@@ -1231,6 +1233,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     pm_avg_hours = pm_results[2] or 0.0
 
     # Get PMs assigned BEFORE this month but completed this month (Outstanding Completions)
+    # This includes PMs with different due dates OR NULL/empty due dates
     cursor.execute('''
         SELECT
             COUNT(*) as total_completions,
@@ -1239,7 +1242,12 @@ def generate_monthly_summary_report(conn, month=None, year=None):
         FROM pm_completions
         WHERE EXTRACT(YEAR FROM completion_date::date) = %s
         AND EXTRACT(MONTH FROM completion_date::date) = %s
-        AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+        AND (
+            pm_due_date IS NULL
+            OR pm_due_date = ''
+            OR EXTRACT(YEAR FROM pm_due_date::date) != %s
+            OR EXTRACT(MONTH FROM pm_due_date::date) != %s
+        )
     ''', (year, month, year, month))
 
     outstanding_results = cursor.fetchone()
@@ -1688,7 +1696,12 @@ def generate_monthly_summary_report(conn, month=None, year=None):
             FROM pm_completions
             WHERE EXTRACT(YEAR FROM completion_date::date) = %s
             AND EXTRACT(MONTH FROM completion_date::date) = %s
-            AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+            AND (
+                pm_due_date IS NULL
+                OR pm_due_date = ''
+                OR EXTRACT(YEAR FROM pm_due_date::date) != %s
+                OR EXTRACT(MONTH FROM pm_due_date::date) != %s
+            )
             ORDER BY technician_name, completion_date
         ''', (year, month, year, month))
 
@@ -2320,6 +2333,8 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             FROM pm_completions
             WHERE EXTRACT(YEAR FROM completion_date::date) = %s
             AND EXTRACT(MONTH FROM completion_date::date) = %s
+            AND pm_due_date IS NOT NULL
+            AND pm_due_date != ''
             AND EXTRACT(YEAR FROM pm_due_date::date) = %s
             AND EXTRACT(MONTH FROM pm_due_date::date) = %s
         ''', (year, month, year, month))
@@ -2329,7 +2344,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         pm_total_hours = pm_results[1] or 0.0
         pm_avg_hours = pm_results[2] or 0.0
 
-        # Get Outstanding Completions (assigned before, completed this month)
+        # Get Outstanding Completions (assigned before, completed this month, OR NULL due date)
         cursor.execute('''
             SELECT
                 COUNT(*) as total_completions,
@@ -2338,7 +2353,12 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             FROM pm_completions
             WHERE EXTRACT(YEAR FROM completion_date::date) = %s
             AND EXTRACT(MONTH FROM completion_date::date) = %s
-            AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+            AND (
+                pm_due_date IS NULL
+                OR pm_due_date = ''
+                OR EXTRACT(YEAR FROM pm_due_date::date) != %s
+                OR EXTRACT(MONTH FROM pm_due_date::date) != %s
+            )
         ''', (year, month, year, month))
 
         outstanding_results = cursor.fetchone()
@@ -2435,7 +2455,12 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
                 FROM pm_completions
                 WHERE EXTRACT(YEAR FROM completion_date::date) = %s
                 AND EXTRACT(MONTH FROM completion_date::date) = %s
-                AND (EXTRACT(YEAR FROM pm_due_date::date) != %s OR EXTRACT(MONTH FROM pm_due_date::date) != %s)
+                AND (
+                    pm_due_date IS NULL
+                    OR pm_due_date = ''
+                    OR EXTRACT(YEAR FROM pm_due_date::date) != %s
+                    OR EXTRACT(MONTH FROM pm_due_date::date) != %s
+                )
                 ORDER BY technician_name, completion_date
             ''', (year, month, year, month))
 
