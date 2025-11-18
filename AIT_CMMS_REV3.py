@@ -1213,6 +1213,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     
     # 1. OVERALL MONTHLY SUMMARY - PM COMPLETIONS ONLY
     # Get PM completions count - ONLY for PMs assigned AND completed in the same month
+    # EXCLUDE special types: Cannot Find, Run to Failure
     cursor.execute('''
         SELECT
             COUNT(*) as total_completions,
@@ -1225,6 +1226,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
         AND pm_due_date != ''
         AND EXTRACT(YEAR FROM pm_due_date::date) = %s
         AND EXTRACT(MONTH FROM pm_due_date::date) = %s
+        AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
     ''', (year, month, year, month))
 
     pm_results = cursor.fetchone()
@@ -1234,6 +1236,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
 
     # Get PMs assigned BEFORE this month but completed this month (Outstanding Completions)
     # This includes PMs with different due dates OR NULL/empty due dates
+    # EXCLUDE special types: Cannot Find, Run to Failure
     cursor.execute('''
         SELECT
             COUNT(*) as total_completions,
@@ -1248,6 +1251,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
             OR EXTRACT(YEAR FROM pm_due_date::date) != %s
             OR EXTRACT(MONTH FROM pm_due_date::date) != %s
         )
+        AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
     ''', (year, month, year, month))
 
     outstanding_results = cursor.fetchone()
@@ -1702,6 +1706,7 @@ def generate_monthly_summary_report(conn, month=None, year=None):
                 OR EXTRACT(YEAR FROM pm_due_date::date) != %s
                 OR EXTRACT(MONTH FROM pm_due_date::date) != %s
             )
+            AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
             ORDER BY technician_name, completion_date
         ''', (year, month, year, month))
 
@@ -1743,15 +1748,14 @@ def generate_monthly_summary_report(conn, month=None, year=None):
     print(f"    - Total Labor Hours: {outstanding_total_hours:.1f} hours")
     print(f"    - Average Hours per PM: {outstanding_avg_hours:.1f} hours")
     print()
-    print(f"  TOTAL PMs Completed in {month_name}: {pm_completions + outstanding_completions}")
+    print(f"  Note: PM Completions + Outstanding = {pm_completions + outstanding_completions} total completions")
     print()
     
     # Display Cannot Find and Run to Failure separately
-    print("OTHER ACTIVITY:")
+    print("OTHER ACTIVITY (Not counted in PM totals):")
     print(f"  Cannot Find Entries: {cf_count}")
     print(f"  Mark as Found Entries: {found_count}")
     print(f"  Run to Failure Entries: {rtf_count}")
-    print(f"  Total All Activity: {pm_completions + cf_count + rtf_count}")
     print()
 
     # Display detailed Mark as Found list if any assets were found this month
@@ -2325,6 +2329,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         story.append(Spacer(1, 10))
     
         # Get summary data - ONLY PMs assigned AND completed in the same month
+        # EXCLUDE special types: Cannot Find, Run to Failure
         cursor.execute('''
             SELECT
                 COUNT(*) as total_completions,
@@ -2337,6 +2342,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
             AND pm_due_date != ''
             AND EXTRACT(YEAR FROM pm_due_date::date) = %s
             AND EXTRACT(MONTH FROM pm_due_date::date) = %s
+            AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
         ''', (year, month, year, month))
 
         pm_results = cursor.fetchone()
@@ -2345,6 +2351,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
         pm_avg_hours = pm_results[2] or 0.0
 
         # Get Outstanding Completions (assigned before, completed this month, OR NULL due date)
+        # EXCLUDE special types: Cannot Find, Run to Failure
         cursor.execute('''
             SELECT
                 COUNT(*) as total_completions,
@@ -2359,6 +2366,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
                 OR EXTRACT(YEAR FROM pm_due_date::date) != %s
                 OR EXTRACT(MONTH FROM pm_due_date::date) != %s
             )
+            AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
         ''', (year, month, year, month))
 
         outstanding_results = cursor.fetchone()
@@ -2461,6 +2469,7 @@ def export_professional_monthly_report_pdf(conn, month=None, year=None):
                     OR EXTRACT(YEAR FROM pm_due_date::date) != %s
                     OR EXTRACT(MONTH FROM pm_due_date::date) != %s
                 )
+                AND pm_type NOT IN ('CANNOT FIND', 'Cannot Find', 'Run to Failure', 'RTF')
                 ORDER BY technician_name, completion_date
             ''', (year, month, year, month))
 
