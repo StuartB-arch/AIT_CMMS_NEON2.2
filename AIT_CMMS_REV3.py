@@ -8887,7 +8887,7 @@ class AITCMMSSystem:
                 ''', (
                     'apenson',
                     password_hash,
-                    'April Penson',
+                    'Ashica Penson',
                     'Parts Coordinator',
                     'apenson@ait.com',
                     True,
