@@ -20,6 +20,7 @@ from psycopg2 import sql, extras
 from datetime import datetime, timedelta
 import json
 import os
+import traceback
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -9963,6 +9964,9 @@ class AITCMMSSystem:
         list_frame.grid_rowconfigure(0, weight=1)
         list_frame.grid_columnconfigure(0, weight=1)
 
+        # Bind double-click event to equipment list
+        self.equipment_tree.bind('<Double-1>', self.on_equipment_double_click)
+
         # Initialize equipment data on tab creation
         self.refresh_equipment_list()
 
@@ -10237,13 +10241,10 @@ class AITCMMSSystem:
         buttons_frame = ttk.Frame(form_frame)
         buttons_frame.grid(row=row, column=0, columnspan=2, pady=15)
         
-        ttk.Button(buttons_frame, text="Monthly Summary Report", 
+        ttk.Button(buttons_frame, text="Monthly Summary Report",
            command=self.show_monthly_summary).pack(side='left', padx=5)
-        
-        ttk.Button(buttons_frame, text="Show Equipment PM History", 
-                command=lambda: self.show_equipment_pm_history_dialog()).pack(side='left', padx=5)
-        
-        ttk.Button(buttons_frame, text="Submit PM Completion", 
+
+        ttk.Button(buttons_frame, text="Submit PM Completion",
                 command=self.submit_pm_completion).pack(side='left', padx=5)
         ttk.Button(buttons_frame, text="Refresh List", 
                 command=self.load_recent_completions).pack(side='left', padx=5)
@@ -17846,6 +17847,403 @@ class AITCMMSSystem:
         self.equipment_search_var.set('')
         self.equipment_location_var.set("All Locations")
         self.filter_equipment_list()
+
+    def on_equipment_double_click(self, event):
+        """Handle double-click on equipment to schedule and print PM"""
+        selection = self.equipment_tree.selection()
+        if not selection:
+            return
+
+        # Get the selected item's values
+        item = self.equipment_tree.item(selection[0])
+        values = item['values']
+
+        if len(values) >= 2:
+            bfm_no = values[1]  # BFM Equipment No. is at index 1
+            self.show_equipment_pm_actions_dialog(bfm_no)
+
+    def show_equipment_pm_actions_dialog(self, bfm_no):
+        """Show dialog for scheduling and printing PM for specific equipment"""
+        try:
+            cursor = self.conn.cursor()
+
+            # Get equipment information
+            cursor.execute('''
+                SELECT sap_material_no, bfm_equipment_no, description, tool_id_drawing_no,
+                    location, master_lin, monthly_pm, six_month_pm, annual_pm,
+                    last_monthly_pm, last_six_month_pm, last_annual_pm,
+                    next_monthly_pm, next_six_month_pm, next_annual_pm, status
+                FROM equipment
+                WHERE bfm_equipment_no = %s
+            ''', (bfm_no,))
+
+            equipment_data = cursor.fetchone()
+
+            if not equipment_data:
+                messagebox.showerror("Error", f"Equipment '{bfm_no}' not found in database")
+                return
+
+            # Create dialog
+            dialog = tk.Toplevel(self.root)
+            dialog.title(f"PM Actions - {bfm_no}")
+            dialog.geometry("700x600")
+            dialog.transient(self.root)
+            dialog.grab_set()
+
+            # Equipment details frame
+            details_frame = ttk.LabelFrame(dialog, text="Equipment Details", padding=15)
+            details_frame.pack(fill='x', padx=10, pady=10)
+
+            # Unpack equipment data
+            (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
+             six_month_pm, annual_pm, last_monthly, last_six_month, last_annual,
+             next_monthly, next_six_month, next_annual, status) = equipment_data
+
+            # Display equipment details
+            row = 0
+            details = [
+                ("BFM Equipment No.:", bfm),
+                ("SAP Material No.:", sap_no or 'N/A'),
+                ("Description:", description or 'N/A'),
+                ("Location:", location or 'N/A'),
+                ("Master LIN:", master_lin or 'N/A'),
+                ("Status:", status or 'Active'),
+            ]
+
+            for label_text, value_text in details:
+                ttk.Label(details_frame, text=label_text, font=('Arial', 10, 'bold')).grid(
+                    row=row, column=0, sticky='w', pady=5)
+                ttk.Label(details_frame, text=str(value_text), font=('Arial', 10)).grid(
+                    row=row, column=1, sticky='w', padx=10, pady=5)
+                row += 1
+
+            # PM Schedule Information
+            pm_frame = ttk.LabelFrame(dialog, text="PM Schedule Information", padding=15)
+            pm_frame.pack(fill='both', expand=True, padx=10, pady=5)
+
+            # Create text widget for PM info
+            pm_text = tk.Text(pm_frame, height=10, width=70, wrap='word', font=('Arial', 10))
+            pm_text.pack(fill='both', expand=True, padx=5, pady=5)
+
+            # Add PM schedule information
+            pm_info = []
+            if monthly_pm:
+                pm_info.append(f"Monthly PM: Enabled")
+                pm_info.append(f"  Last Completed: {last_monthly or 'Never'}")
+                pm_info.append(f"  Next Due: {next_monthly or 'Not Scheduled'}")
+                pm_info.append("")
+
+            if six_month_pm:
+                pm_info.append(f"Six Month PM: Enabled")
+                pm_info.append(f"  Last Completed: {last_six_month or 'Never'}")
+                pm_info.append(f"  Next Due: {next_six_month or 'Not Scheduled'}")
+                pm_info.append("")
+
+            if annual_pm:
+                pm_info.append(f"Annual PM: Enabled")
+                pm_info.append(f"  Last Completed: {last_annual or 'Never'}")
+                pm_info.append(f"  Next Due: {next_annual or 'Not Scheduled'}")
+
+            if not pm_info:
+                pm_info.append("No PM schedule configured for this equipment.")
+
+            pm_text.insert('1.0', '\n'.join(pm_info))
+            pm_text.config(state='disabled')
+
+            # Action buttons frame
+            actions_frame = ttk.Frame(dialog, padding=10)
+            actions_frame.pack(fill='x', padx=10, pady=10)
+
+            # Schedule PM button
+            ttk.Button(actions_frame, text="Schedule PM",
+                      command=lambda: self.schedule_equipment_pm_dialog(bfm_no, equipment_data, dialog)).pack(
+                side='left', padx=5)
+
+            # Print PM Form button
+            ttk.Button(actions_frame, text="Print PM Form",
+                      command=lambda: self.print_equipment_pm_form(bfm_no, equipment_data)).pack(
+                side='left', padx=5)
+
+            # Close button
+            ttk.Button(actions_frame, text="Close", command=dialog.destroy).pack(side='right', padx=5)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to show equipment PM actions: {str(e)}")
+            traceback.print_exc()
+
+    def schedule_equipment_pm_dialog(self, bfm_no, equipment_data, parent_dialog):
+        """Dialog to schedule a PM for specific equipment"""
+        try:
+            # Create schedule dialog
+            schedule_dialog = tk.Toplevel(parent_dialog)
+            schedule_dialog.title(f"Schedule PM - {bfm_no}")
+            schedule_dialog.geometry("500x400")
+            schedule_dialog.transient(parent_dialog)
+            schedule_dialog.grab_set()
+
+            # Form frame
+            form_frame = ttk.LabelFrame(schedule_dialog, text="PM Scheduling", padding=15)
+            form_frame.pack(fill='both', expand=True, padx=10, pady=10)
+
+            # PM Type selection
+            ttk.Label(form_frame, text="PM Type:", font=('Arial', 10, 'bold')).grid(
+                row=0, column=0, sticky='w', pady=10)
+
+            pm_type_var = tk.StringVar()
+            pm_types = []
+
+            # Determine available PM types based on equipment configuration
+            (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
+             six_month_pm, annual_pm, *_) = equipment_data
+
+            if monthly_pm:
+                pm_types.append('Monthly')
+            if six_month_pm:
+                pm_types.append('Six Month')
+            if annual_pm:
+                pm_types.append('Annual')
+
+            if not pm_types:
+                ttk.Label(form_frame, text="No PM types configured for this equipment",
+                         foreground='red').grid(row=0, column=1, sticky='w', padx=10)
+            else:
+                pm_type_combo = ttk.Combobox(form_frame, textvariable=pm_type_var,
+                                             values=pm_types, state='readonly', width=20)
+                pm_type_combo.grid(row=0, column=1, sticky='w', padx=10)
+                pm_type_combo.current(0)
+
+            # Week Start Date
+            ttk.Label(form_frame, text="Week Start Date:", font=('Arial', 10, 'bold')).grid(
+                row=1, column=0, sticky='w', pady=10)
+
+            week_start_var = tk.StringVar()
+            # Calculate next Monday
+            today = datetime.now()
+            days_ahead = 0 - today.weekday()  # Monday is 0
+            if days_ahead <= 0:
+                days_ahead += 7
+            next_monday = today + timedelta(days=days_ahead)
+            week_start_var.set(next_monday.strftime('%Y-%m-%d'))
+
+            ttk.Entry(form_frame, textvariable=week_start_var, width=20).grid(
+                row=1, column=1, sticky='w', padx=10)
+
+            # Scheduled Date
+            ttk.Label(form_frame, text="Scheduled Date:", font=('Arial', 10, 'bold')).grid(
+                row=2, column=0, sticky='w', pady=10)
+
+            scheduled_date_var = tk.StringVar()
+            scheduled_date_var.set(next_monday.strftime('%Y-%m-%d'))
+
+            ttk.Entry(form_frame, textvariable=scheduled_date_var, width=20).grid(
+                row=2, column=1, sticky='w', padx=10)
+
+            # Technician assignment
+            ttk.Label(form_frame, text="Assign Technician:", font=('Arial', 10, 'bold')).grid(
+                row=3, column=0, sticky='w', pady=10)
+
+            tech_var = tk.StringVar()
+            tech_combo = ttk.Combobox(form_frame, textvariable=tech_var,
+                                     values=self.technicians, state='readonly', width=20)
+            tech_combo.grid(row=3, column=1, sticky='w', padx=10)
+            if self.technicians:
+                tech_combo.current(0)
+
+            # Buttons
+            button_frame = ttk.Frame(schedule_dialog, padding=10)
+            button_frame.pack(fill='x', padx=10, pady=10)
+
+            def save_schedule():
+                if not pm_types:
+                    messagebox.showerror("Error", "No PM types configured for this equipment")
+                    return
+
+                pm_type = pm_type_var.get()
+                week_start = week_start_var.get()
+                scheduled_date = scheduled_date_var.get()
+                technician = tech_var.get()
+
+                if not all([pm_type, week_start, scheduled_date, technician]):
+                    messagebox.showwarning("Warning", "Please fill in all fields")
+                    return
+
+                try:
+                    cursor = self.conn.cursor()
+
+                    # Insert into weekly_pm_schedules
+                    cursor.execute('''
+                        INSERT INTO weekly_pm_schedules
+                        (bfm_equipment_no, pm_type, week_start_date, scheduled_date,
+                         assigned_technician, status, created_date)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ''', (bfm_no, pm_type, week_start, scheduled_date, technician,
+                          'Scheduled', datetime.now()))
+
+                    self.conn.commit()
+
+                    messagebox.showinfo("Success",
+                                       f"PM scheduled for {bfm_no}\n"
+                                       f"Type: {pm_type}\n"
+                                       f"Date: {scheduled_date}\n"
+                                       f"Technician: {technician}")
+
+                    schedule_dialog.destroy()
+
+                except Exception as e:
+                    self.conn.rollback()
+                    messagebox.showerror("Error", f"Failed to schedule PM: {str(e)}")
+                    traceback.print_exc()
+
+            ttk.Button(button_frame, text="Save Schedule", command=save_schedule).pack(
+                side='left', padx=5)
+            ttk.Button(button_frame, text="Cancel", command=schedule_dialog.destroy).pack(
+                side='right', padx=5)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to create schedule dialog: {str(e)}")
+            traceback.print_exc()
+
+    def print_equipment_pm_form(self, bfm_no, equipment_data):
+        """Generate and print PM form for specific equipment"""
+        try:
+            cursor = self.conn.cursor()
+
+            # Unpack equipment data
+            (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
+             six_month_pm, annual_pm, *_) = equipment_data
+
+            # Get PM template if available
+            cursor.execute('''
+                SELECT pm_type, description, tasks_description
+                FROM pm_templates
+                WHERE bfm_equipment_no = %s
+                LIMIT 1
+            ''', (bfm_no,))
+
+            template_data = cursor.fetchone()
+
+            # Create PDF
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"PM_Form_{bfm_no}_{timestamp}.pdf"
+
+            doc = SimpleDocTemplate(filename, pagesize=letter,
+                                   rightMargin=36, leftMargin=36,
+                                   topMargin=36, bottomMargin=36)
+
+            styles = getSampleStyleSheet()
+            story = []
+
+            # Header
+            company_style = ParagraphStyle(
+                'CompanyStyle',
+                parent=styles['Heading1'],
+                fontSize=14,
+                fontName='Helvetica-Bold',
+                alignment=1,
+                textColor=colors.darkblue
+            )
+
+            story.append(Paragraph("PREVENTATIVE MAINTENANCE WORK ORDER", company_style))
+            story.append(Spacer(1, 0.3 * inch))
+
+            # Equipment information table
+            equipment_info = [
+                ['BFM Equipment No.:', bfm or ''],
+                ['SAP Material No.:', sap_no or ''],
+                ['Description:', description or ''],
+                ['Location:', location or ''],
+                ['Master LIN:', master_lin or ''],
+            ]
+
+            equipment_table = Table(equipment_info, colWidths=[2 * inch, 4.5 * inch])
+            equipment_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
+                ('ALIGN', (1, 0), (1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+
+            story.append(equipment_table)
+            story.append(Spacer(1, 0.3 * inch))
+
+            # PM Type checkboxes
+            story.append(Paragraph("<b>PM Type (check one):</b>", styles['Normal']))
+            story.append(Spacer(1, 0.1 * inch))
+
+            pm_checkboxes = []
+            if monthly_pm:
+                pm_checkboxes.append(['☐ Monthly PM', ''])
+            if six_month_pm:
+                pm_checkboxes.append(['☐ Six Month PM', ''])
+            if annual_pm:
+                pm_checkboxes.append(['☐ Annual PM', ''])
+
+            if pm_checkboxes:
+                pm_table = Table(pm_checkboxes, colWidths=[2 * inch, 4.5 * inch])
+                pm_table.setStyle(TableStyle([
+                    ('FONTSIZE', (0, 0), (-1, -1), 10),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 12),
+                ]))
+                story.append(pm_table)
+
+            story.append(Spacer(1, 0.3 * inch))
+
+            # Work performed section
+            story.append(Paragraph("<b>Work Performed / Tasks Completed:</b>", styles['Normal']))
+            story.append(Spacer(1, 0.1 * inch))
+
+            if template_data and template_data[2]:
+                # Use template tasks if available
+                tasks_text = template_data[2]
+                story.append(Paragraph(tasks_text.replace('\n', '<br/>'), styles['Normal']))
+            else:
+                # Empty lines for manual entry
+                for i in range(10):
+                    story.append(Spacer(1, 0.2 * inch))
+                    story.append(Table([['_' * 100]], colWidths=[6.5 * inch]))
+
+            story.append(Spacer(1, 0.3 * inch))
+
+            # Signature section
+            signature_data = [
+                ['Technician:', '_' * 40, 'Date:', '_' * 20],
+                ['Labor Hours:', '_' * 40, '', ''],
+            ]
+
+            signature_table = Table(signature_data, colWidths=[1.5 * inch, 2.5 * inch, 1 * inch, 1.5 * inch])
+            signature_table.setStyle(TableStyle([
+                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 10),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ]))
+
+            story.append(signature_table)
+
+            # Build PDF
+            doc.build(story)
+
+            messagebox.showinfo("Success", f"PM form generated: {filename}")
+            self.update_status(f"PM form created for {bfm_no}")
+
+            # Open the PDF
+            import subprocess
+            import platform
+            if platform.system() == 'Darwin':  # macOS
+                subprocess.call(('open', filename))
+            elif platform.system() == 'Windows':
+                os.startfile(filename)
+            else:  # Linux
+                subprocess.call(('xdg-open', filename))
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate PM form: {str(e)}")
+            traceback.print_exc()
 
     def export_equipment_list(self):
         """Export equipment list to CSV"""
