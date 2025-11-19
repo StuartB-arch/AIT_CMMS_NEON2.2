@@ -14015,17 +14015,17 @@ class AITCMMSSystem:
         bfm_combo.grid(row=row, column=1, sticky='w', padx=10, pady=5)
         row += 1
 
-        # SAP Material Number (auto-populated, read-only)
+        # SAP Material Number (auto-populated from equipment selection)
         ttk.Label(dialog, text="SAP Material No:").grid(row=row, column=0, sticky='w', padx=10, pady=5)
         sap_var = tk.StringVar()
-        sap_entry = ttk.Entry(dialog, textvariable=sap_var, width=20, state='readonly')
+        sap_entry = ttk.Entry(dialog, textvariable=sap_var, width=20)
         sap_entry.grid(row=row, column=1, sticky='w', padx=10, pady=5)
         row += 1
 
-        # Tool ID / Drawing Number (auto-populated, read-only)
+        # Tool ID / Drawing Number (auto-populated from equipment selection)
         ttk.Label(dialog, text="Tool ID / Drawing No:").grid(row=row, column=0, sticky='w', padx=10, pady=5)
         tool_id_var = tk.StringVar()
-        tool_id_entry = ttk.Entry(dialog, textvariable=tool_id_var, width=20, state='readonly')
+        tool_id_entry = ttk.Entry(dialog, textvariable=tool_id_var, width=20)
         tool_id_entry.grid(row=row, column=1, sticky='w', padx=10, pady=5)
         row += 1
 
