@@ -1,0 +1,191 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║           AIT CMMS - DATABASE BACKUP FEATURE - QUICK START GUIDE             ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+🎯 PURPOSE
+──────────────────────────────────────────────────────────────────────────────
+Backup your NEON database to a file that can be uploaded to SharePoint for
+safe storage and disaster recovery.
+
+ONLY MANAGERS can use this feature.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 QUICK START (5 STEPS)
+──────────────────────────────────────────────────────────────────────────────
+
+1. OPEN BACKUP MANAGER
+   • Login as Manager
+   • Click "🗄️ Database Backup" button in Manager Tools
+
+2. CREATE BACKUP
+   • Click "📥 Create Backup Now"
+   • Wait for success message (2-10 minutes)
+
+3. SELECT BACKUP
+   • Click on a backup in the list
+
+4. EXPORT BACKUP
+   • Click "📂 Export Selected Backup"
+   • Choose where to save the file
+
+5. UPLOAD TO SHAREPOINT
+   • Go to SharePoint
+   • Upload the .backup file to backup folder
+   ✓ Done! Your backup is safe
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏱️ HOW LONG DOES A BACKUP TAKE?
+──────────────────────────────────────────────────────────────────────────────
+Small Database:  2-3 minutes
+Medium Database: 5-10 minutes
+Large Database:  10+ minutes
+
+💡 Hint: Do it during quiet hours or after hours
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 MAIN BUTTONS EXPLAINED
+──────────────────────────────────────────────────────────────────────────────
+
+📥 Create Backup Now
+   Creates a new backup file right now
+   → File is saved in ./backups/ folder
+
+📂 Export Selected Backup
+   Saves a backup file to your computer (for SharePoint upload)
+   → First select a backup, then click this
+
+🔄 Refresh List
+   Updates the list of backups shown
+   → Use if you just added a backup
+
+🗑️ Cleanup Old Backups
+   Deletes old backups to save space
+   → Keeps only recent backups (configurable)
+
+📋 View Backup Details
+   Shows information about a backup file
+   → First select a backup, then click this
+
+🗑️ Delete Selected
+   Permanently deletes a backup
+   → Be careful! You cannot undo this
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 BACKUP FILES
+──────────────────────────────────────────────────────────────────────────────
+
+Where are they stored?
+   AIT_CMMS_NEON2.2/backups/
+
+What do they look like?
+   cmms_backup_20250119_143052.backup
+
+How big are they?
+   Usually 50-70% of database size
+   Small DB:  10-50 MB
+   Medium DB: 50-200 MB
+   Large DB:  200+ MB
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️ CONFIGURATION (OPTIONAL)
+──────────────────────────────────────────────────────────────────────────────
+
+At the bottom of the window, you can change:
+
+Schedule
+   Daily    - Backup every day
+   Weekly   - Backup once a week
+   Monthly  - Backup once a month
+
+Retention Days
+   How long to keep backups (default: 30 days)
+   After this, old backups are deleted
+
+Then click "Save Config" to save changes
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ IMPORTANT NOTES
+──────────────────────────────────────────────────────────────────────────────
+
+✓ Backups are AUTOMATIC
+  System creates backups automatically per schedule
+
+✓ Safe to run anytime
+  Backup doesn't interfere with normal operations
+
+✓ Multiple backups OK
+  You can have many backups at once
+
+✓ SharePoint upload is MANUAL
+  Export the file, then upload to SharePoint yourself
+
+✗ No encryption in backups
+  Store them in secure locations
+
+✗ Don't share backup files
+  Backup files contain database information
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❓ COMMON TASKS
+──────────────────────────────────────────────────────────────────────────────
+
+TASK: I want to backup right now
+→ Click "📥 Create Backup Now"
+
+TASK: I want to upload to SharePoint
+→ Select backup → Click "📂 Export Selected Backup" → Upload file
+
+TASK: I want to see when a backup was made
+→ Look in the "Created" column in the backup list
+
+TASK: I need more space (too many backups)
+→ Click "🗑️ Cleanup Old Backups"
+
+TASK: I don't remember what a backup contains
+→ Click "📋 View Backup Details"
+
+TASK: I want to schedule weekly backups
+→ Change "Schedule" to "Weekly" → Click "Save Config"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🆘 TROUBLESHOOTING
+──────────────────────────────────────────────────────────────────────────────
+
+PROBLEM: "pg_dump failed" error
+SOLUTION: Check your internet connection and try again
+
+PROBLEM: Backup took too long
+SOLUTION: Database may be large. Try during off-hours
+
+PROBLEM: Cannot export backup
+SOLUTION: Choose a different folder. Check write permissions.
+
+PROBLEM: Status bar shows error
+SOLUTION: Read the error message. Check internet. Try again.
+
+PROBLEM: I don't see my backup in the list
+SOLUTION: Click "🔄 Refresh List"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📞 NEED MORE HELP?
+──────────────────────────────────────────────────────────────────────────────
+
+Read the full guide:
+   DATABASE_BACKUP_GUIDE.md
+
+OR contact your system administrator
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✨ BEST PRACTICE: Backup before major updates or changes! ✨
+
+╚════════════════════════════════════════════════════════════════════════════╝
