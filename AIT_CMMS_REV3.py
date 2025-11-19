@@ -17859,7 +17859,7 @@ class AITCMMSSystem:
         values = item['values']
 
         if len(values) >= 2:
-            bfm_no = values[1]  # BFM Equipment No. is at index 1
+            bfm_no = str(values[1])  # BFM Equipment No. is at index 1, convert to string
             self.show_equipment_pm_actions_dialog(bfm_no)
 
     def show_equipment_pm_actions_dialog(self, bfm_no):
