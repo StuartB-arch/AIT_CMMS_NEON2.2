@@ -11,6 +11,7 @@ from kpi_database_migration import migrate_kpi_database
 from kpi_manager import KPIManager
 from user_management_ui import UserManagementDialog
 from password_change_ui import show_password_change_dialog
+from backup_ui import BackupUI
 import shutil
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
@@ -9427,6 +9428,9 @@ class AITCMMSSystem:
             ttk.Button(toolbar_frame, text="👥 Manage Users",
                       command=self.open_user_management).pack(side='left', padx=5)
 
+            ttk.Button(toolbar_frame, text="🗄️ Database Backup",
+                      command=self.open_backup_manager).pack(side='left', padx=5)
+
             ttk.Button(toolbar_frame, text="Switch to Technician View",
                       command=self.switch_to_technician_view).pack(side='left', padx=5)
 
@@ -9693,6 +9697,20 @@ class AITCMMSSystem:
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to open user management: {e}")
+
+    def open_backup_manager(self):
+        """Open database backup manager (Manager only)"""
+        if self.current_user_role != 'Manager':
+            messagebox.showerror("Access Denied", "Only managers can access the backup manager.")
+            return
+
+        try:
+            backup_ui = BackupUI(self.root, self.DB_CONFIG, self.user_name)
+            backup_ui.open_backup_window()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open backup manager: {e}")
+            print(f"Backup manager error: {e}")
 
     def open_change_password(self):
         """Open password change dialog (available to all users)"""
