@@ -37,7 +37,28 @@ class BackupManager:
         self.backup_log_file = self.backup_dir / "backup_log.json"
 
         # Create backup directory if it doesn't exist
-        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            # Provide helpful error message for permission issues
+            abs_path = self.backup_dir.absolute()
+            error_msg = (
+                f"Permission denied when creating backup directory.\n\n"
+                f"Directory: {abs_path}\n\n"
+                f"Solutions:\n"
+                f"1. Run the application as Administrator (right-click → Run as administrator)\n"
+                f"2. Move the application to a user folder (e.g., Documents, Desktop)\n"
+                f"3. Manually create the folder and grant yourself write permissions\n\n"
+                f"Technical details: {str(e)}"
+            )
+            raise PermissionError(error_msg) from e
+        except Exception as e:
+            abs_path = self.backup_dir.absolute()
+            error_msg = (
+                f"Failed to create backup directory: {abs_path}\n\n"
+                f"Error: {str(e)}"
+            )
+            raise Exception(error_msg) from e
 
         # Default configuration
         self.config = {
