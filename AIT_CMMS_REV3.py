@@ -18275,7 +18275,7 @@ class AITCMMSSystem:
         values = item['values']
 
         if len(values) >= 2:
-            bfm_no = values[1]  # BFM Equipment No. is at index 1
+            bfm_no = str(values[1])  # BFM Equipment No. is at index 1, ensure it's a string
             self.show_equipment_pm_actions_dialog(bfm_no)
 
     def show_equipment_pm_actions_dialog(self, bfm_no):
@@ -18283,12 +18283,13 @@ class AITCMMSSystem:
         try:
             cursor = self.conn.cursor()
 
-            # Get equipment information
+            # Get equipment information including photos
             cursor.execute('''
                 SELECT sap_material_no, bfm_equipment_no, description, tool_id_drawing_no,
                     location, master_lin, monthly_pm, six_month_pm, annual_pm,
                     last_monthly_pm, last_six_month_pm, last_annual_pm,
-                    next_monthly_pm, next_six_month_pm, next_annual_pm, status
+                    next_monthly_pm, next_six_month_pm, next_annual_pm, status,
+                    picture_1_data, picture_2_data
                 FROM equipment
                 WHERE bfm_equipment_no = %s
             ''', (bfm_no,))
@@ -18299,21 +18300,34 @@ class AITCMMSSystem:
                 messagebox.showerror("Error", f"Equipment '{bfm_no}' not found in database")
                 return
 
-            # Create dialog
+            # Create dialog with scrollable frame
             dialog = tk.Toplevel(self.root)
             dialog.title(f"PM Actions - {bfm_no}")
-            dialog.geometry("700x600")
+            dialog.geometry("800x700")
             dialog.transient(self.root)
             dialog.grab_set()
 
-            # Equipment details frame
-            details_frame = ttk.LabelFrame(dialog, text="Equipment Details", padding=15)
-            details_frame.pack(fill='x', padx=10, pady=10)
+            # Create main canvas and scrollbar
+            main_canvas = tk.Canvas(dialog)
+            scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=main_canvas.yview)
+            scrollable_frame = ttk.Frame(main_canvas)
 
-            # Unpack equipment data
+            scrollable_frame.bind(
+                "<Configure>",
+                lambda e: main_canvas.configure(scrollregion=main_canvas.bbox("all"))
+            )
+
+            main_canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+            main_canvas.configure(yscrollcommand=scrollbar.set)
+
+            # Unpack equipment data including photos
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
              six_month_pm, annual_pm, last_monthly, last_six_month, last_annual,
-             next_monthly, next_six_month, next_annual, status) = equipment_data
+             next_monthly, next_six_month, next_annual, status, picture_1_data, picture_2_data) = equipment_data
+
+            # Equipment details frame
+            details_frame = ttk.LabelFrame(scrollable_frame, text="Equipment Details", padding=15)
+            details_frame.pack(fill='x', padx=10, pady=10)
 
             # Display equipment details
             row = 0
@@ -18333,8 +18347,52 @@ class AITCMMSSystem:
                     row=row, column=1, sticky='w', padx=10, pady=5)
                 row += 1
 
+            # Equipment Photos Section
+            if picture_1_data or picture_2_data:
+                photos_frame = ttk.LabelFrame(scrollable_frame, text="Equipment Photos", padding=15)
+                photos_frame.pack(fill='x', padx=10, pady=10)
+
+                try:
+                    from PIL import Image as PILImage, ImageTk
+                    import io
+
+                    photo_row = 0
+
+                    if picture_1_data:
+                        try:
+                            img = PILImage.open(io.BytesIO(picture_1_data))
+                            # Resize to fit in dialog (max 300x300)
+                            img.thumbnail((300, 300), PILImage.Resampling.LANCZOS)
+                            photo1 = ImageTk.PhotoImage(img)
+
+                            ttk.Label(photos_frame, text="Photo 1:", font=('Arial', 10, 'bold')).grid(
+                                row=photo_row, column=0, sticky='nw', pady=5, padx=5)
+                            photo1_label = ttk.Label(photos_frame, image=photo1)
+                            photo1_label.image = photo1  # Keep reference
+                            photo1_label.grid(row=photo_row, column=1, sticky='w', pady=5, padx=5)
+                            photo_row += 1
+                        except Exception as e:
+                            print(f"Error displaying photo 1: {e}")
+
+                    if picture_2_data:
+                        try:
+                            img = PILImage.open(io.BytesIO(picture_2_data))
+                            img.thumbnail((300, 300), PILImage.Resampling.LANCZOS)
+                            photo2 = ImageTk.PhotoImage(img)
+
+                            ttk.Label(photos_frame, text="Photo 2:", font=('Arial', 10, 'bold')).grid(
+                                row=photo_row, column=0, sticky='nw', pady=5, padx=5)
+                            photo2_label = ttk.Label(photos_frame, image=photo2)
+                            photo2_label.image = photo2  # Keep reference
+                            photo2_label.grid(row=photo_row, column=1, sticky='w', pady=5, padx=5)
+                        except Exception as e:
+                            print(f"Error displaying photo 2: {e}")
+
+                except ImportError:
+                    ttk.Label(photos_frame, text="PIL/Pillow not installed - cannot display photos").pack()
+
             # PM Schedule Information
-            pm_frame = ttk.LabelFrame(dialog, text="PM Schedule Information", padding=15)
+            pm_frame = ttk.LabelFrame(scrollable_frame, text="PM Schedule Information", padding=15)
             pm_frame.pack(fill='both', expand=True, padx=10, pady=5)
 
             # Create text widget for PM info
@@ -18367,7 +18425,7 @@ class AITCMMSSystem:
             pm_text.config(state='disabled')
 
             # Action buttons frame
-            actions_frame = ttk.Frame(dialog, padding=10)
+            actions_frame = ttk.Frame(scrollable_frame, padding=10)
             actions_frame.pack(fill='x', padx=10, pady=10)
 
             # Schedule PM button
@@ -18382,6 +18440,10 @@ class AITCMMSSystem:
 
             # Close button
             ttk.Button(actions_frame, text="Close", command=dialog.destroy).pack(side='right', padx=5)
+
+            # Pack canvas and scrollbar
+            main_canvas.pack(side="left", fill="both", expand=True)
+            scrollbar.pack(side="right", fill="y")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to show equipment PM actions: {str(e)}")
@@ -18520,13 +18582,21 @@ class AITCMMSSystem:
             traceback.print_exc()
 
     def print_equipment_pm_form(self, bfm_no, equipment_data):
-        """Generate and print PM form for specific equipment"""
+        """Generate and print PM form for specific equipment with photos"""
         try:
             cursor = self.conn.cursor()
 
-            # Unpack equipment data
+            # Unpack equipment data including photos
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
-             six_month_pm, annual_pm, *_) = equipment_data
+             six_month_pm, annual_pm, *remaining) = equipment_data
+
+            # Extract photos if present (last 2 items in remaining)
+            picture_1_data = None
+            picture_2_data = None
+            if len(remaining) >= 2:
+                # The last two items are the photos
+                picture_1_data = remaining[-2]
+                picture_2_data = remaining[-1]
 
             # Get PM template if available
             cursor.execute('''
@@ -18586,6 +18656,98 @@ class AITCMMSSystem:
 
             story.append(equipment_table)
             story.append(Spacer(1, 0.3 * inch))
+
+            # Equipment Photos Section
+            if picture_1_data or picture_2_data:
+                try:
+                    from PIL import Image as PILImage
+                    from reportlab.platypus import Image as RLImage
+                    import io
+
+                    story.append(Paragraph("<b>EQUIPMENT PHOTOS:</b>", styles['Heading2']))
+                    story.append(Spacer(1, 0.1 * inch))
+
+                    photos_to_display = []
+
+                    if picture_1_data:
+                        try:
+                            # Convert binary data to PIL Image
+                            img_stream = io.BytesIO(picture_1_data)
+                            pil_img = PILImage.open(img_stream)
+
+                            # Resize if needed (max width 2.5 inches, max height 2 inches)
+                            max_width = 2.5 * inch
+                            max_height = 2 * inch
+
+                            img_width, img_height = pil_img.size
+                            aspect = img_width / img_height
+
+                            if img_width > max_width or img_height > max_height:
+                                if aspect > 1:  # Wider than tall
+                                    new_width = max_width
+                                    new_height = max_width / aspect
+                                else:  # Taller than wide
+                                    new_height = max_height
+                                    new_width = max_height * aspect
+                            else:
+                                new_width = img_width
+                                new_height = img_height
+
+                            temp_io = io.BytesIO(picture_1_data)
+                            photo1 = RLImage(temp_io, width=new_width, height=new_height)
+                            photos_to_display.append(photo1)
+                        except Exception as e:
+                            print(f"Error processing photo 1 for PM form: {e}")
+
+                    if picture_2_data:
+                        try:
+                            img_stream = io.BytesIO(picture_2_data)
+                            pil_img = PILImage.open(img_stream)
+
+                            max_width = 2.5 * inch
+                            max_height = 2 * inch
+
+                            img_width, img_height = pil_img.size
+                            aspect = img_width / img_height
+
+                            if img_width > max_width or img_height > max_height:
+                                if aspect > 1:
+                                    new_width = max_width
+                                    new_height = max_width / aspect
+                                else:
+                                    new_height = max_height
+                                    new_width = max_height * aspect
+                            else:
+                                new_width = img_width
+                                new_height = img_height
+
+                            temp_io = io.BytesIO(picture_2_data)
+                            photo2 = RLImage(temp_io, width=new_width, height=new_height)
+                            photos_to_display.append(photo2)
+                        except Exception as e:
+                            print(f"Error processing photo 2 for PM form: {e}")
+
+                    # Display photos side by side if 2, centered if 1
+                    if len(photos_to_display) == 2:
+                        photo_table = Table([[photos_to_display[0], photos_to_display[1]]],
+                                          colWidths=[3.25 * inch, 3.25 * inch])
+                        photo_table.setStyle(TableStyle([
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ]))
+                        story.append(photo_table)
+                    elif len(photos_to_display) == 1:
+                        photo_table = Table([[photos_to_display[0]]], colWidths=[6.5 * inch])
+                        photo_table.setStyle(TableStyle([
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ]))
+                        story.append(photo_table)
+
+                    story.append(Spacer(1, 0.3 * inch))
+
+                except Exception as e:
+                    print(f"Error displaying equipment photos in PM form: {e}")
 
             # PM Type checkboxes
             story.append(Paragraph("<b>PM Type (check one):</b>", styles['Normal']))
