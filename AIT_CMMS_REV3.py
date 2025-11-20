@@ -3771,9 +3771,16 @@ class AITCMMSSystem:
                 # Also update the equipment table status if the equipment exists
                 cursor.execute('SELECT bfm_equipment_no FROM equipment WHERE bfm_equipment_no = %s', (bfm_no,))
                 if cursor.fetchone():
-                    cursor.execute('UPDATE equipment SET status = %s WHERE bfm_equipment_no = %s', 
+                    cursor.execute('UPDATE equipment SET status = %s WHERE bfm_equipment_no = %s',
                                 ('Cannot Find', bfm_no))
-        
+
+                # Update any scheduled PMs for this asset to "Cannot Find" status
+                cursor.execute('''
+                    UPDATE weekly_pm_schedules
+                    SET status = 'Cannot Find'
+                    WHERE bfm_equipment_no = %s AND status = 'Scheduled'
+                ''', (bfm_no,))
+
                 self.conn.commit()
         
                 messagebox.showinfo("Success", f"Cannot Find asset {bfm_no} added successfully")
@@ -10114,6 +10121,8 @@ class AITCMMSSystem:
                   command=self.print_weekly_pm_forms).grid(row=0, column=3, padx=5)
         ttk.Button(controls_frame, text="Export Schedule",
                   command=self.export_weekly_schedule).grid(row=0, column=4, padx=5)
+        ttk.Button(controls_frame, text="Mark as Cannot Find",
+                  command=self.mark_pm_cannot_find).grid(row=0, column=5, padx=5)
 
         # Technician Exclusion Controls
         exclusion_frame = ttk.LabelFrame(self.pm_schedule_frame, text="Exclude Technicians from This Week's Schedule", padding=10)
@@ -12566,10 +12575,10 @@ class AITCMMSSystem:
             if affected_rows != 1:
                 raise Exception(f"Equipment status update failed - affected {affected_rows} rows")
 
-            # Update weekly schedule status if exists - mark as completed with special note
+            # Update weekly schedule status to "Cannot Find"
             cursor.execute('''
                 UPDATE weekly_pm_schedules SET
-                status = 'Completed',
+                status = 'Cannot Find',
                 completion_date = %s,
                 notes = %s
                 WHERE id = (
@@ -12579,7 +12588,7 @@ class AITCMMSSystem:
                     ORDER BY scheduled_date
                     LIMIT 1
                 )
-            ''', (completion_date, f"CANNOT FIND: {notes}", bfm_no, technician))
+            ''', (completion_date, notes, bfm_no, technician))
 
             print(f"CHECK: Cannot Find PM processed: {bfm_no}")
             return True
@@ -13121,6 +13130,13 @@ class AITCMMSSystem:
                         updated_date = CURRENT_TIMESTAMP
                     WHERE bfm_equipment_no = %s
                 ''', (found_by, bfm_no))
+
+                # Update any "Cannot Find" PM schedules back to "Scheduled"
+                cursor.execute('''
+                    UPDATE weekly_pm_schedules
+                    SET status = 'Scheduled'
+                    WHERE bfm_equipment_no = %s AND status = 'Cannot Find'
+                ''', (bfm_no,))
 
                 self.conn.commit()
 
@@ -18446,7 +18462,152 @@ class AITCMMSSystem:
 
             # Yield to event loop after each technician
             self.root.update_idletasks()
-    
+
+    def mark_pm_cannot_find(self):
+        """Mark a selected PM as Cannot Find from the scheduling tab"""
+        # Get the current technician tab
+        current_tab = self.technician_notebook.select()
+        if not current_tab:
+            messagebox.showwarning("Warning", "No technician tab selected")
+            return
+
+        # Get the technician name from the tab
+        tab_index = self.technician_notebook.index(current_tab)
+        technician_name = self.technician_notebook.tab(tab_index, "text")
+
+        # Get the selected PM from the tree
+        if technician_name not in self.technician_trees:
+            messagebox.showwarning("Warning", "Invalid technician selection")
+            return
+
+        tree = self.technician_trees[technician_name]
+        selected = tree.selection()
+
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a PM to mark as Cannot Find")
+            return
+
+        # Get the PM details
+        item = tree.item(selected[0])
+        values = item['values']
+        bfm_no = values[0]
+        description = values[1] if len(values) > 1 else "N/A"
+        pm_type = values[2] if len(values) > 2 else "N/A"
+        scheduled_date = values[3] if len(values) > 3 else "N/A"
+        current_status = values[4] if len(values) > 4 else "N/A"
+
+        # Check if already marked as Cannot Find
+        if current_status == "Cannot Find":
+            messagebox.showinfo("Info", f"PM for {bfm_no} is already marked as Cannot Find")
+            return
+
+        # Confirm action
+        confirm_msg = (f"Mark PM as Cannot Find?\n\n"
+                      f"BFM Equipment No: {bfm_no}\n"
+                      f"Description: {description}\n"
+                      f"PM Type: {pm_type}\n"
+                      f"Scheduled Date: {scheduled_date}\n"
+                      f"Technician: {technician_name}\n\n"
+                      f"This will:\n"
+                      f"• Update PM status to 'Cannot Find'\n"
+                      f"• Add asset to Cannot Find list\n"
+                      f"• Update equipment status to 'Cannot Find'\n\n"
+                      f"Continue?")
+
+        result = messagebox.askyesno("Confirm Cannot Find", confirm_msg)
+
+        if not result:
+            return
+
+        # Prompt for notes
+        notes_dialog = tk.Toplevel(self.root)
+        notes_dialog.title("Cannot Find Notes")
+        notes_dialog.geometry("400x200")
+        notes_dialog.transient(self.root)
+        notes_dialog.grab_set()
+
+        ttk.Label(notes_dialog, text="Please provide details (optional):").pack(pady=10)
+        notes_text = tk.Text(notes_dialog, width=50, height=6)
+        notes_text.pack(pady=10, padx=10)
+        notes_text.insert('1.0', "Asset could not be located during scheduled PM")
+
+        def save_cannot_find():
+            notes = notes_text.get("1.0", tk.END).strip()
+            try:
+                cursor = self.conn.cursor()
+                today = datetime.now().strftime('%Y-%m-%d')
+
+                # Get equipment info
+                cursor.execute('SELECT description, location FROM equipment WHERE bfm_equipment_no = %s', (bfm_no,))
+                equipment_info = cursor.fetchone()
+                if equipment_info:
+                    eq_description, location = equipment_info
+                else:
+                    eq_description = description
+                    location = "Unknown"
+
+                # Check if already in cannot_find_assets
+                cursor.execute('SELECT bfm_equipment_no FROM cannot_find_assets WHERE bfm_equipment_no = %s', (bfm_no,))
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Update existing record
+                    cursor.execute('''
+                        UPDATE cannot_find_assets
+                        SET status = 'Missing',
+                            technician_name = %s,
+                            reported_date = %s,
+                            notes = %s,
+                            updated_date = CURRENT_TIMESTAMP
+                        WHERE bfm_equipment_no = %s
+                    ''', (technician_name, today, notes, bfm_no))
+                else:
+                    # Insert new record
+                    cursor.execute('''
+                        INSERT INTO cannot_find_assets
+                        (bfm_equipment_no, description, location, technician_name, reported_date, status, notes)
+                        VALUES (%s, %s, %s, %s, %s, 'Missing', %s)
+                    ''', (bfm_no, eq_description, location, technician_name, today, notes))
+
+                # Update equipment status
+                cursor.execute('UPDATE equipment SET status = %s WHERE bfm_equipment_no = %s',
+                             ('Cannot Find', bfm_no))
+
+                # Update PM schedule status to "Cannot Find"
+                week_start = self.week_start_var.get()
+                cursor.execute('''
+                    UPDATE weekly_pm_schedules
+                    SET status = 'Cannot Find',
+                        completion_date = %s,
+                        notes = %s
+                    WHERE bfm_equipment_no = %s
+                      AND assigned_technician = %s
+                      AND week_start_date = %s
+                      AND pm_type = %s
+                      AND status = 'Scheduled'
+                ''', (today, notes, bfm_no, technician_name, week_start, pm_type))
+
+                self.conn.commit()
+
+                messagebox.showinfo("Success", f"PM for {bfm_no} marked as Cannot Find")
+
+                # Refresh displays
+                self.refresh_technician_schedules()
+                if hasattr(self, 'load_cannot_find_assets'):
+                    self.load_cannot_find_assets()
+                if hasattr(self, 'update_equipment_statistics'):
+                    self.update_equipment_statistics()
+
+                notes_dialog.destroy()
+
+            except Exception as e:
+                self.conn.rollback()
+                messagebox.showerror("Error", f"Failed to mark PM as Cannot Find: {str(e)}")
+                print(f"Error details: {e}")
+
+        ttk.Button(notes_dialog, text="Save", command=save_cannot_find).pack(side='left', padx=60, pady=10)
+        ttk.Button(notes_dialog, text="Cancel", command=notes_dialog.destroy).pack(side='left', pady=10)
+
     def print_weekly_pm_forms(self):
         """Generate and print PM forms for the week"""
         try:
