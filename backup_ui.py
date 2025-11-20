@@ -94,6 +94,26 @@ class BackupUI:
             width=25
         ).pack(side='left', padx=5)
 
+        # Second row of buttons for restore
+        button_subframe2 = ttk.Frame(action_frame)
+        button_subframe2.pack(fill='x', pady=(10, 0))
+
+        # Restore Backup Button
+        self.restore_backup_btn = ttk.Button(
+            button_subframe2,
+            text="📤 Restore/Upload Backup",
+            command=self.restore_backup_handler,
+            width=25
+        )
+        self.restore_backup_btn.pack(side='left', padx=5)
+
+        ttk.Label(
+            button_subframe2,
+            text="⚠️ Restore will overwrite the current database!",
+            foreground='red',
+            font=('Arial', 9, 'bold')
+        ).pack(side='left', padx=10)
+
         # ===== BACKUP LIST SECTION =====
         list_frame = ttk.LabelFrame(main_frame, text="Available Backups", padding=10)
         list_frame.pack(fill='both', expand=True, pady=(0, 10))
@@ -253,6 +273,127 @@ class BackupUI:
         finally:
             self.backup_in_progress = False
             self.root.after(0, lambda: self.create_backup_btn.config(state='normal'))
+
+    def restore_backup_handler(self):
+        """Handle backup restore - upload and restore a backup file"""
+        if self.backup_in_progress:
+            messagebox.showwarning("Operation In Progress",
+                                  "A backup operation is already in progress. Please wait.")
+            return
+
+        # Show warning dialog first
+        warning_result = messagebox.askokcancel(
+            "⚠️ WARNING: Database Restore",
+            "CRITICAL WARNING:\n\n"
+            "Restoring a backup will COMPLETELY OVERWRITE the current database!\n\n"
+            "All current data will be REPLACED with the backup data.\n\n"
+            "This operation CANNOT BE UNDONE.\n\n"
+            "It is HIGHLY RECOMMENDED to create a backup of the current database\n"
+            "before proceeding with restore.\n\n"
+            "Do you want to continue?",
+            icon='warning'
+        )
+
+        if not warning_result:
+            self.log_status("Restore operation cancelled by user.")
+            return
+
+        # Ask user to select backup file
+        backup_file = filedialog.askopenfilename(
+            title="Select Backup File to Restore",
+            filetypes=[
+                ("Backup Files", "*.backup"),
+                ("All Files", "*.*")
+            ],
+            initialdir="./backups"
+        )
+
+        if not backup_file:
+            self.log_status("Restore cancelled - no file selected.")
+            return
+
+        # Final confirmation with filename
+        final_confirm = messagebox.askyesno(
+            "Final Confirmation",
+            f"You are about to restore from:\n\n{Path(backup_file).name}\n\n"
+            f"This will OVERWRITE the current database.\n\n"
+            f"Are you absolutely sure you want to proceed?",
+            icon='warning'
+        )
+
+        if not final_confirm:
+            self.log_status("Restore operation cancelled by user.")
+            return
+
+        # Disable button
+        self.restore_backup_btn.config(state='disabled')
+        self.backup_in_progress = True
+
+        # Run restore in separate thread
+        self.backup_thread = threading.Thread(
+            target=self._restore_backup_thread,
+            args=(backup_file,),
+            daemon=True
+        )
+        self.backup_thread.start()
+
+    def _restore_backup_thread(self, backup_file):
+        """Thread function to restore backup"""
+        try:
+            self.log_status("=" * 60)
+            self.log_status("🔄 Starting database restore operation...")
+            self.log_status(f"📁 Source file: {Path(backup_file).name}")
+            self.log_status("=" * 60)
+            self.log_status("⏳ This may take several minutes depending on database size...")
+            self.log_status("⚠️  DO NOT close the application during restore!")
+
+            # Call the restore method with confirm=True
+            success, message = self.backup_manager.restore_backup(backup_file, confirm=True)
+
+            if success:
+                self.log_status("=" * 60)
+                self.log_status("✅ Database restored successfully!")
+                self.log_status(f"💾 {message}")
+                self.log_status("=" * 60)
+                self.log_status("⚠️  Please restart the application to ensure all connections are refreshed.")
+
+                # Show success dialog
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Restore Successful",
+                    f"Database restored successfully!\n\n"
+                    f"Source: {Path(backup_file).name}\n\n"
+                    f"{message}\n\n"
+                    f"IMPORTANT: Please restart the application\n"
+                    f"to ensure all connections are properly refreshed."
+                ))
+            else:
+                self.log_status("=" * 60)
+                self.log_status(f"❌ Restore failed: {message}")
+                self.log_status("=" * 60)
+
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Restore Failed",
+                    f"Failed to restore database:\n\n{message}\n\n"
+                    f"Please check the backup file is valid and try again.\n"
+                    f"If the problem persists, contact your system administrator."
+                ))
+
+            # Refresh the list
+            self.root.after(0, self.refresh_backup_list)
+
+        except Exception as e:
+            self.log_status("=" * 60)
+            self.log_status(f"❌ Error during restore: {str(e)}")
+            self.log_status("=" * 60)
+
+            self.root.after(0, lambda: messagebox.showerror(
+                "Restore Error",
+                f"Error restoring backup:\n\n{str(e)}\n\n"
+                f"Please check the log for details."
+            ))
+        finally:
+            self.backup_in_progress = False
+            self.root.after(0, lambda: self.restore_backup_btn.config(state='normal'))
 
     def refresh_backup_list(self):
         """Refresh the list of available backups"""

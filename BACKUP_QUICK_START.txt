@@ -4,8 +4,9 @@
 
 🎯 PURPOSE
 ──────────────────────────────────────────────────────────────────────────────
-Backup your NEON database to a file that can be uploaded to SharePoint for
-safe storage and disaster recovery.
+Backup and restore your NEON database. Backup files can be uploaded to
+SharePoint for safe storage and disaster recovery. Restore feature allows
+quick recovery from data loss or corruption.
 
 ONLY MANAGERS can use this feature.
 
@@ -56,6 +57,11 @@ Large Database:  10+ minutes
 📂 Export Selected Backup
    Saves a backup file to your computer (for SharePoint upload)
    → First select a backup, then click this
+
+📤 Restore/Upload Backup
+   Restores the database from a backup file
+   → ⚠️ WARNING: This OVERWRITES the current database!
+   → Use to recover from data loss or revert to previous state
 
 🔄 Refresh List
    Updates the list of backups shown
@@ -154,6 +160,12 @@ TASK: I don't remember what a backup contains
 TASK: I want to schedule weekly backups
 → Change "Schedule" to "Weekly" → Click "Save Config"
 
+TASK: I need to restore from a backup (DATA RECOVERY)
+→ ⚠️ Create current backup FIRST!
+→ Click "📤 Restore/Upload Backup"
+→ Confirm warnings → Select backup file → Confirm again
+→ Wait for completion → Restart application
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🆘 TROUBLESHOOTING
@@ -173,6 +185,14 @@ SOLUTION: Read the error message. Check internet. Try again.
 
 PROBLEM: I don't see my backup in the list
 SOLUTION: Click "🔄 Refresh List"
+
+PROBLEM: Restore failed
+SOLUTION: Check backup file is valid. Make sure backup file isn't corrupted.
+         Verify PostgreSQL connection. Try again with different backup.
+
+PROBLEM: After restore, data looks wrong
+SOLUTION: You may have restored wrong backup file. Create backup of current
+         state, then restore the correct backup file.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

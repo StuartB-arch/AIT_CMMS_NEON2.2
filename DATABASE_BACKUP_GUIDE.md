@@ -2,7 +2,7 @@
 
 ## Overview
 
-The **Database Backup Manager** is a manager-exclusive feature that allows you to create, manage, and export backups of the NEON PostgreSQL database. This enables disaster recovery and data preservation for your CMMS system.
+The **Database Backup Manager** is a manager-exclusive feature that allows you to create, manage, restore, and export backups of the NEON PostgreSQL database. This enables disaster recovery, data preservation, and quick restoration for your CMMS system.
 
 ## Features
 
@@ -21,18 +21,25 @@ The **Database Backup Manager** is a manager-exclusive feature that allows you t
 - Automatic cleanup of old backups based on retention policy
 - Manual deletion of specific backups
 
-### 3. **Export to SharePoint**
+### 3. **Restore from Backup**
+- Upload and restore database from backup files
+- Supports both local backups and uploaded files from external sources
+- Multiple confirmation steps to prevent accidental overwrites
+- Automatic verification of backup file integrity
+- Clear warnings and safety recommendations
+
+### 4. **Export to SharePoint**
 - Export backup files to any location on your computer
 - Suitable file format for uploading to SharePoint or cloud storage
 - Full backup verification before export
 
-### 4. **Configuration**
+### 5. **Configuration**
 - Schedule backups: Daily, Weekly, or Monthly
 - Set retention period (default: 30 days)
 - Maximum backup limit (default: 50 backups)
 - Backup verification is enabled by default
 
-### 5. **Audit Trail**
+### 6. **Audit Trail**
 - Complete logging of all backup operations
 - Status tracking (success/failed)
 - Detailed error messages for troubleshooting
@@ -66,6 +73,37 @@ The **Database Backup Manager** is a manager-exclusive feature that allows you t
 5. Upload the file to your SharePoint location
 
 **File Format**: `.backup` (PostgreSQL custom format)
+
+### Restoring a Backup
+
+⚠️ **WARNING**: Restoring a backup will completely overwrite the current database. All current data will be lost!
+
+1. Click **"📤 Restore/Upload Backup"** button
+2. Read and confirm the warning dialog about overwriting the database
+3. Select a backup file to restore:
+   - Choose from the `./backups/` directory, OR
+   - Browse to upload a backup file from another location
+4. Review the final confirmation showing the filename
+5. Click "Yes" to proceed with restore
+6. The system will:
+   - Show progress in the status log
+   - Restore the database from the backup file
+   - Display a success or error message
+7. **IMPORTANT**: Restart the application after restore to refresh all connections
+
+**Time to Complete**: 2-10 minutes (depending on database size)
+
+**Recommended Before Restore**:
+- Create a backup of the current database first
+- Verify the backup file you're restoring is valid
+- Ensure no other users are actively using the system
+- Have a recent working backup as a safety measure
+
+**Use Cases for Restore**:
+- Recover from data corruption or loss
+- Revert to a previous database state
+- Migrate data from another environment
+- Restore after accidental deletions
 
 ### Managing Backups
 
