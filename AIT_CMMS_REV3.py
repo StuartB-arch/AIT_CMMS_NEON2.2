@@ -18269,6 +18269,9 @@ class AITCMMSSystem:
         try:
             cursor = self.conn.cursor()
 
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
+
             # Get equipment information
             cursor.execute('''
                 SELECT sap_material_no, bfm_equipment_no, description, tool_id_drawing_no,
@@ -18376,6 +18379,9 @@ class AITCMMSSystem:
     def schedule_equipment_pm_dialog(self, bfm_no, equipment_data, parent_dialog):
         """Dialog to schedule a PM for specific equipment"""
         try:
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
+
             # Create schedule dialog
             schedule_dialog = tk.Toplevel(parent_dialog)
             schedule_dialog.title(f"Schedule PM - {bfm_no}")
@@ -18560,6 +18566,9 @@ class AITCMMSSystem:
         """Generate and print PM form for specific equipment"""
         try:
             cursor = self.conn.cursor()
+
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
 
             # Unpack equipment data
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
