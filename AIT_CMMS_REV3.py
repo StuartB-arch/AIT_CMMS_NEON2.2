@@ -10267,19 +10267,22 @@ class AITCMMSSystem:
         # Submit and refresh buttons
         buttons_frame = ttk.Frame(form_frame)
         buttons_frame.grid(row=row, column=0, columnspan=2, pady=15)
-        
+
         ttk.Button(buttons_frame, text="Monthly Summary Report",
            command=self.show_monthly_summary).pack(side='left', padx=5)
 
         ttk.Button(buttons_frame, text="Submit PM Completion",
                 command=self.submit_pm_completion).pack(side='left', padx=5)
-        ttk.Button(buttons_frame, text="Refresh List", 
+        ttk.Button(buttons_frame, text="Refresh List",
                 command=self.load_recent_completions).pack(side='left', padx=5)
-               
-        ttk.Button(buttons_frame, text="Check Equipment Schedule", 
+
+        ttk.Button(buttons_frame, text="Edit Completed PM",
+                command=self.edit_completed_pm).pack(side='left', padx=5)
+
+        ttk.Button(buttons_frame, text="Check Equipment Schedule",
                 command=self.create_pm_schedule_lookup_dialog).pack(side='left', padx=5)
-        
-        ttk.Button(buttons_frame, text="Create CM from PM", 
+
+        ttk.Button(buttons_frame, text="Create CM from PM",
                 command=self.create_cm_from_pm_dialog).pack(side='left', padx=5)
         
         # Recent completions
@@ -10811,6 +10814,208 @@ class AITCMMSSystem:
             # Update status bar to confirm selection
             if hasattr(self, 'update_status'):
                 self.update_status(f"Selected equipment {bfm_no} from recent completions")
+
+    def edit_completed_pm(self):
+        """Edit a selected completed PM/OM from the recent completions list"""
+        selection = self.recent_completions_tree.selection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a completed PM to edit")
+            return
+
+        # Get the selected item's values
+        item = self.recent_completions_tree.item(selection[0])
+        values = item['values']
+
+        if len(values) < 5:
+            messagebox.showerror("Error", "Invalid selection")
+            return
+
+        completion_date = values[0]
+        bfm_no = values[1]
+        pm_type = values[2]
+        technician = values[3]
+
+        try:
+            cursor = self.conn.cursor()
+
+            # Get full completion details from database
+            cursor.execute('''
+                SELECT pc.*, e.sap_material_no, e.description, e.location
+                FROM pm_completions pc
+                LEFT JOIN equipment e ON pc.bfm_equipment_no = e.bfm_equipment_no
+                WHERE pc.completion_date = %s AND pc.bfm_equipment_no = %s
+                AND pc.pm_type = %s AND pc.technician_name = %s
+            ''', (str(completion_date), str(bfm_no), str(pm_type), str(technician)))
+
+            completion_data = cursor.fetchone()
+
+            if not completion_data:
+                messagebox.showerror("Error", "Could not find completion details")
+                return
+
+            # Extract data fields
+            completion_id = completion_data[0]
+            bfm_no = completion_data[1]
+            pm_type = completion_data[2]
+            technician_name = completion_data[3]
+            completion_date = completion_data[4]
+            labor_hours = completion_data[5] or 0.0
+            labor_minutes = completion_data[6] or 0.0
+            pm_due_date = completion_data[7] or ''
+            special_equipment = completion_data[8] or ''
+            notes = completion_data[9] or ''
+            next_annual_pm_date = completion_data[10] or ''
+            description = completion_data[15] if len(completion_data) > 15 else ''
+            location = completion_data[16] if len(completion_data) > 16 else ''
+
+            # Create edit dialog
+            edit_dialog = tk.Toplevel(self.root)
+            edit_dialog.title(f"Edit Completed PM - {bfm_no}")
+            edit_dialog.geometry("600x700")
+            edit_dialog.transient(self.root)
+            edit_dialog.grab_set()
+
+            # Create main frame with scrollbar
+            main_frame = ttk.Frame(edit_dialog, padding=15)
+            main_frame.pack(fill='both', expand=True)
+
+            # Equipment info (read-only display)
+            info_frame = ttk.LabelFrame(main_frame, text="Equipment Information", padding=10)
+            info_frame.pack(fill='x', pady=5)
+
+            ttk.Label(info_frame, text=f"BFM: {bfm_no}", font=('Arial', 10, 'bold')).pack(anchor='w')
+            ttk.Label(info_frame, text=f"Description: {description}").pack(anchor='w')
+            ttk.Label(info_frame, text=f"Location: {location}").pack(anchor='w')
+
+            # Editable fields frame
+            fields_frame = ttk.LabelFrame(main_frame, text="Edit PM Details", padding=10)
+            fields_frame.pack(fill='both', expand=True, pady=10)
+
+            row = 0
+
+            # PM Type
+            ttk.Label(fields_frame, text="PM Type:").grid(row=row, column=0, sticky='w', pady=5)
+            pm_type_var = tk.StringVar(value=pm_type)
+            pm_type_combo = ttk.Combobox(fields_frame, textvariable=pm_type_var,
+                                       values=['Monthly', 'Six Month', 'Annual', 'CANNOT FIND', 'Run to Failure'],
+                                       width=20, state='readonly')
+            pm_type_combo.grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Technician
+            ttk.Label(fields_frame, text="Technician:").grid(row=row, column=0, sticky='w', pady=5)
+            tech_var = tk.StringVar(value=technician_name)
+            tech_combo = ttk.Combobox(fields_frame, textvariable=tech_var,
+                                    values=self.technicians, width=20)
+            tech_combo.grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Completion Date
+            ttk.Label(fields_frame, text="Completion Date (YYYY-MM-DD):").grid(row=row, column=0, sticky='w', pady=5)
+            completion_date_var = tk.StringVar(value=str(completion_date))
+            ttk.Entry(fields_frame, textvariable=completion_date_var, width=20).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Labor Hours
+            ttk.Label(fields_frame, text="Labor Hours:").grid(row=row, column=0, sticky='w', pady=5)
+            hours_var = tk.StringVar(value=str(int(labor_hours)))
+            ttk.Entry(fields_frame, textvariable=hours_var, width=10).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Labor Minutes
+            ttk.Label(fields_frame, text="Labor Minutes:").grid(row=row, column=0, sticky='w', pady=5)
+            minutes_var = tk.StringVar(value=str(int(labor_minutes)))
+            ttk.Entry(fields_frame, textvariable=minutes_var, width=10).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # PM Due Date
+            ttk.Label(fields_frame, text="PM Due Date (YYYY-MM-DD):").grid(row=row, column=0, sticky='w', pady=5)
+            pm_due_var = tk.StringVar(value=str(pm_due_date))
+            ttk.Entry(fields_frame, textvariable=pm_due_var, width=20).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Special Equipment
+            ttk.Label(fields_frame, text="Special Equipment:").grid(row=row, column=0, sticky='w', pady=5)
+            special_eq_var = tk.StringVar(value=special_equipment)
+            ttk.Entry(fields_frame, textvariable=special_eq_var, width=40).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Notes
+            ttk.Label(fields_frame, text="Notes:").grid(row=row, column=0, sticky='nw', pady=5)
+            notes_text = tk.Text(fields_frame, width=40, height=6)
+            notes_text.insert('1.0', notes)
+            notes_text.grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            # Next Annual PM Date
+            ttk.Label(fields_frame, text="Next Annual PM Date (YYYY-MM-DD):").grid(row=row, column=0, sticky='w', pady=5)
+            next_annual_var = tk.StringVar(value=str(next_annual_pm_date))
+            ttk.Entry(fields_frame, textvariable=next_annual_var, width=20).grid(row=row, column=1, sticky='w', padx=5, pady=5)
+            row += 1
+
+            def save_changes():
+                """Save the edited PM completion"""
+                try:
+                    # Validate required fields
+                    if not pm_type_var.get() or not tech_var.get() or not completion_date_var.get():
+                        messagebox.showerror("Error", "Please fill in all required fields")
+                        return
+
+                    # Get values
+                    new_pm_type = pm_type_var.get()
+                    new_technician = tech_var.get()
+                    new_completion_date = completion_date_var.get().strip()
+                    new_labor_hours = float(hours_var.get() or 0)
+                    new_labor_minutes = float(minutes_var.get() or 0)
+                    new_pm_due_date = pm_due_var.get().strip()
+                    new_special_equipment = special_eq_var.get().strip()
+                    new_notes = notes_text.get('1.0', 'end-1c')
+                    new_next_annual_pm = next_annual_var.get().strip()
+
+                    # Update the database
+                    update_cursor = self.conn.cursor()
+                    update_cursor.execute('''
+                        UPDATE pm_completions
+                        SET pm_type = %s,
+                            technician_name = %s,
+                            completion_date = %s,
+                            labor_hours = %s,
+                            labor_minutes = %s,
+                            pm_due_date = %s,
+                            special_equipment = %s,
+                            notes = %s,
+                            next_annual_pm_date = %s,
+                            updated_date = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                    ''', (new_pm_type, new_technician, new_completion_date,
+                         new_labor_hours, new_labor_minutes, new_pm_due_date,
+                         new_special_equipment, new_notes, new_next_annual_pm,
+                         completion_id))
+
+                    self.conn.commit()
+
+                    messagebox.showinfo("Success", "PM completion updated successfully!")
+                    edit_dialog.destroy()
+
+                    # Refresh the recent completions list
+                    self.load_recent_completions()
+
+                    if hasattr(self, 'update_status'):
+                        self.update_status(f"Updated PM completion for {bfm_no}")
+
+                except Exception as e:
+                    self.conn.rollback()
+                    messagebox.showerror("Error", f"Failed to update PM completion: {str(e)}")
+
+            # Buttons frame
+            buttons_frame = ttk.Frame(main_frame)
+            buttons_frame.pack(fill='x', pady=10)
+
+            ttk.Button(buttons_frame, text="Save Changes", command=save_changes).pack(side='left', padx=5)
+            ttk.Button(buttons_frame, text="Cancel", command=edit_dialog.destroy).pack(side='left', padx=5)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load PM details: {str(e)}")
 
     def generate_pm_completion_pdf(self, completion_date, bfm_no, pm_type, technician):
         """Generate and export PM completion PDF document"""
