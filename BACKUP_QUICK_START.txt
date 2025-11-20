@@ -85,7 +85,10 @@ Large Database:  10+ minutes
 ──────────────────────────────────────────────────────────────────────────────
 
 Where are they stored?
-   AIT_CMMS_NEON2.2/backups/
+   The application automatically picks a safe location:
+   • Usually: Documents\AIT_CMMS_Backups\
+   • Check the Backup Manager window for the exact path
+   • Look for "📁 Backup Location:" at the top
 
 What do they look like?
    cmms_backup_20250119_143052.backup

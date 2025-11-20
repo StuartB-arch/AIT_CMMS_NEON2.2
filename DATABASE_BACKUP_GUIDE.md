@@ -138,12 +138,20 @@ The **Database Backup Manager** is a manager-exclusive feature that allows you t
 
 ## Backup Locations
 
-### Default Backup Directory
-```
-./backups/
-```
+### Automatic Backup Directory Selection
 
-Backups are stored in: `AIT_CMMS_NEON2.2/backups/`
+The application automatically selects a safe, writable location for backups:
+
+**Primary Location (preferred):**
+- Windows: `C:\Users\[YourUsername]\Documents\AIT_CMMS_Backups\`
+- Linux/Mac: `~/Documents/AIT_CMMS_Backups/`
+
+**Fallback Locations** (if primary location is not writable):
+1. Application directory: `./backups/`
+2. User home directory: `~/AIT_CMMS_Backups/`
+3. System temp directory: `[TEMP]/AIT_CMMS_Backups/`
+
+**Important:** The actual backup location is displayed in the Backup Manager window when you open it. Look for the "📁 Backup Location:" line at the top of the window.
 
 ### File Naming Convention
 ```

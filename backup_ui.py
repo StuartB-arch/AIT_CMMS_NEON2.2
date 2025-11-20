@@ -27,7 +27,8 @@ class BackupUI:
         self.root = root
         self.db_config = db_config
         self.user_name = user_name
-        self.backup_manager = BackupManager(db_config, backup_dir="./backups")
+        # Let BackupManager auto-detect a safe backup directory
+        self.backup_manager = BackupManager(db_config)
         self.backup_window = None
         self.backup_thread = None
         self.backup_in_progress = False
@@ -61,6 +62,22 @@ class BackupUI:
 
         ttk.Label(title_frame, text=f"User: {self.user_name}",
                  font=('Arial', 10)).pack(side='right', padx=(5, 0))
+
+        # ===== BACKUP LOCATION INFO =====
+        location_frame = ttk.Frame(main_frame)
+        location_frame.pack(fill='x', pady=(0, 10))
+
+        ttk.Label(location_frame, text="📁 Backup Location:",
+                 font=('Arial', 10, 'bold')).pack(side='left', padx=(0, 5))
+
+        backup_path_text = str(self.backup_manager.backup_dir)
+        ttk.Label(location_frame, text=backup_path_text,
+                 font=('Arial', 9), foreground='#0066cc').pack(side='left')
+
+        # Show a warning if using fallback location
+        if self.backup_manager.using_fallback_location:
+            ttk.Label(location_frame, text="⚠️ Using alternate location due to permissions",
+                     font=('Arial', 9), foreground='orange').pack(side='left', padx=(10, 0))
 
         # ===== ACTION BUTTONS SECTION =====
         action_frame = ttk.LabelFrame(main_frame, text="Backup Actions", padding=10)
@@ -207,6 +224,7 @@ class BackupUI:
         # Initial load
         self.refresh_backup_list()
         self.log_status(f"Backup Manager initialized for user: {self.user_name}")
+        self.log_status(f"📁 Backup directory: {self.backup_manager.backup_dir}")
 
     def log_status(self, message):
         """Log a message to the status text widget"""
@@ -305,7 +323,7 @@ class BackupUI:
                 ("Backup Files", "*.backup"),
                 ("All Files", "*.*")
             ],
-            initialdir="./backups"
+            initialdir=str(self.backup_manager.backup_dir)
         )
 
         if not backup_file:
@@ -449,7 +467,7 @@ class BackupUI:
         item = selection[0]
         values = self.backup_tree.item(item, 'values')
         filename = values[0]
-        source_path = Path("./backups") / filename
+        source_path = self.backup_manager.backup_dir / filename
 
         if not source_path.exists():
             messagebox.showerror("File Not Found", f"Backup file not found: {source_path}")
@@ -492,7 +510,7 @@ class BackupUI:
         item = selection[0]
         values = self.backup_tree.item(item, 'values')
         filename = values[0]
-        backup_path = Path("./backups") / filename
+        backup_path = self.backup_manager.backup_dir / filename
 
         if messagebox.askyesno("Confirm Delete",
                               f"Are you sure you want to delete:\n\n{filename}?\n\nThis cannot be undone."):

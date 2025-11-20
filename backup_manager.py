@@ -20,45 +20,101 @@ from pathlib import Path
 import hashlib
 
 
+def get_safe_backup_directory(preferred_dir: str = None) -> Path:
+    """
+    Determine a safe, writable directory for backups
+
+    Args:
+        preferred_dir: Preferred backup directory path (optional)
+
+    Returns:
+        Path object for a writable backup directory
+    """
+    # If a preferred directory is provided and writable, use it
+    if preferred_dir:
+        try:
+            test_path = Path(preferred_dir)
+            test_path.mkdir(parents=True, exist_ok=True)
+            # Test write permission
+            test_file = test_path / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            return test_path
+        except (PermissionError, OSError):
+            pass  # Fall through to alternatives
+
+    # Try user's Documents folder
+    try:
+        if os.name == 'nt':  # Windows
+            documents = Path.home() / "Documents" / "AIT_CMMS_Backups"
+        else:  # Linux/Mac
+            documents = Path.home() / "Documents" / "AIT_CMMS_Backups"
+
+        documents.mkdir(parents=True, exist_ok=True)
+        # Test write permission
+        test_file = documents / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+        return documents
+    except (PermissionError, OSError):
+        pass
+
+    # Try user's home directory
+    try:
+        home_backup = Path.home() / "AIT_CMMS_Backups"
+        home_backup.mkdir(parents=True, exist_ok=True)
+        # Test write permission
+        test_file = home_backup / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+        return home_backup
+    except (PermissionError, OSError):
+        pass
+
+    # Try temp directory as last resort
+    try:
+        import tempfile
+        temp_backup = Path(tempfile.gettempdir()) / "AIT_CMMS_Backups"
+        temp_backup.mkdir(parents=True, exist_ok=True)
+        return temp_backup
+    except (PermissionError, OSError):
+        pass
+
+    # If all else fails, raise an error
+    raise PermissionError(
+        "Unable to find a writable directory for backups.\n\n"
+        "Tried locations:\n"
+        f"1. {preferred_dir if preferred_dir else 'Not specified'}\n"
+        f"2. {Path.home() / 'Documents' / 'AIT_CMMS_Backups'}\n"
+        f"3. {Path.home() / 'AIT_CMMS_Backups'}\n"
+        f"4. {Path(tempfile.gettempdir()) / 'AIT_CMMS_Backups'}\n\n"
+        "Please run the application as Administrator or check folder permissions."
+    )
+
+
 class BackupManager:
     """Manages automated database backups"""
 
-    def __init__(self, db_config: Dict, backup_dir: str = "./backups"):
+    def __init__(self, db_config: Dict, backup_dir: str = None):
         """
         Initialize backup manager
 
         Args:
             db_config: Database configuration dictionary
-            backup_dir: Directory to store backups
+            backup_dir: Directory to store backups (optional, will auto-detect safe location)
         """
         self.db_config = db_config
-        self.backup_dir = Path(backup_dir)
+
+        # Determine safe backup directory
+        self.backup_dir = get_safe_backup_directory(backup_dir)
         self.config_file = self.backup_dir / "backup_config.json"
         self.backup_log_file = self.backup_dir / "backup_log.json"
 
-        # Create backup directory if it doesn't exist
-        try:
-            self.backup_dir.mkdir(parents=True, exist_ok=True)
-        except PermissionError as e:
-            # Provide helpful error message for permission issues
-            abs_path = self.backup_dir.absolute()
-            error_msg = (
-                f"Permission denied when creating backup directory.\n\n"
-                f"Directory: {abs_path}\n\n"
-                f"Solutions:\n"
-                f"1. Run the application as Administrator (right-click → Run as administrator)\n"
-                f"2. Move the application to a user folder (e.g., Documents, Desktop)\n"
-                f"3. Manually create the folder and grant yourself write permissions\n\n"
-                f"Technical details: {str(e)}"
-            )
-            raise PermissionError(error_msg) from e
-        except Exception as e:
-            abs_path = self.backup_dir.absolute()
-            error_msg = (
-                f"Failed to create backup directory: {abs_path}\n\n"
-                f"Error: {str(e)}"
-            )
-            raise Exception(error_msg) from e
+        # Log the backup directory location
+        print(f"Backup directory: {self.backup_dir}")
+
+        # Store info about whether we're using a fallback location
+        self.using_fallback_location = (backup_dir is None) or (str(self.backup_dir) != str(Path(backup_dir).resolve()))
 
         # Default configuration
         self.config = {
