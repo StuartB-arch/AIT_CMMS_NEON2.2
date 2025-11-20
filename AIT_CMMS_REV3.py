@@ -9011,7 +9011,21 @@ class AITCMMSSystem:
             except Exception as e:
                 print(f"Note: Schema migration skipped or already applied: {e}")
                 # Continue even if columns already exist
-        
+
+            # SCHEMA MIGRATION: Add photo columns to equipment table
+            try:
+                cursor.execute('''
+                    ALTER TABLE equipment
+                    ADD COLUMN IF NOT EXISTS picture_1_data BYTEA
+                ''')
+                cursor.execute('''
+                    ALTER TABLE equipment
+                    ADD COLUMN IF NOT EXISTS picture_2_data BYTEA
+                ''')
+                print("INFO: Equipment photo columns added successfully")
+            except Exception as e:
+                print(f"Note: Equipment photo column migration skipped: {e}")
+
             # Corrective Maintenance table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS corrective_maintenance (
@@ -17366,13 +17380,26 @@ class AITCMMSSystem:
     
     
     def add_equipment_dialog(self):
-        """Dialog to add new equipment"""
+        """Dialog to add new equipment with photo upload"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Add New Equipment")
-        dialog.geometry("500x400")
+        dialog.geometry("600x650")
         dialog.transient(self.root)
         dialog.grab_set()
-        
+
+        # Create scrollable frame
+        canvas = tk.Canvas(dialog)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
         # Form fields
         fields = [
             ("SAP Material No:", tk.StringVar()),
@@ -17382,35 +17409,79 @@ class AITCMMSSystem:
             ("Location:", tk.StringVar()),
             ("Master LIN:", tk.StringVar())
         ]
-        
+
         entries = {}
-        
+
         for i, (label, var) in enumerate(fields):
-            ttk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
-            entry = ttk.Entry(dialog, textvariable=var, width=30)
+            ttk.Label(scrollable_frame, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
+            entry = ttk.Entry(scrollable_frame, textvariable=var, width=30)
             entry.grid(row=i, column=1, padx=10, pady=5)
             entries[label] = var
-        
+
         # PM type checkboxes
-        pm_frame = ttk.LabelFrame(dialog, text="PM Types", padding=10)
+        pm_frame = ttk.LabelFrame(scrollable_frame, text="PM Types", padding=10)
         pm_frame.grid(row=len(fields), column=0, columnspan=2, padx=10, pady=10, sticky='ew')
-        
+
         monthly_var = tk.BooleanVar(value=True)
         six_month_var = tk.BooleanVar(value=True)
         annual_var = tk.BooleanVar(value=True)
-        
+
         ttk.Checkbutton(pm_frame, text="Monthly PM", variable=monthly_var).pack(anchor='w')
         ttk.Checkbutton(pm_frame, text="Six Month PM", variable=six_month_var).pack(anchor='w')
         ttk.Checkbutton(pm_frame, text="Annual PM", variable=annual_var).pack(anchor='w')
-        
+
+        # Photo upload section
+        photo_frame = ttk.LabelFrame(scrollable_frame, text="Equipment Photos", padding=10)
+        photo_frame.grid(row=len(fields)+1, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+
+        picture_1_var = tk.StringVar()
+        picture_2_var = tk.StringVar()
+
+        def browse_image(var):
+            """Browse for image file"""
+            file_path = filedialog.askopenfilename(
+                title="Select Image",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All files", "*.*")]
+            )
+            if file_path:
+                var.set(file_path)
+
+        ttk.Label(photo_frame, text="Picture 1:").grid(row=0, column=0, sticky='w', padx=5, pady=5)
+        pic1_frame = ttk.Frame(photo_frame)
+        pic1_frame.grid(row=0, column=1, sticky='w', padx=5, pady=5)
+        ttk.Entry(pic1_frame, textvariable=picture_1_var, width=30).pack(side='left')
+        ttk.Button(pic1_frame, text="Browse", command=lambda: browse_image(picture_1_var)).pack(side='left', padx=5)
+
+        ttk.Label(photo_frame, text="Picture 2:").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        pic2_frame = ttk.Frame(photo_frame)
+        pic2_frame.grid(row=1, column=1, sticky='w', padx=5, pady=5)
+        ttk.Entry(pic2_frame, textvariable=picture_2_var, width=30).pack(side='left')
+        ttk.Button(pic2_frame, text="Browse", command=lambda: browse_image(picture_2_var)).pack(side='left', padx=5)
+
         def save_equipment():
             try:
+                # Read image files as binary data
+                pic1_path = picture_1_var.get()
+                pic2_path = picture_2_var.get()
+
+                pic1_data = None
+                pic2_data = None
+
+                if pic1_path and os.path.exists(pic1_path):
+                    with open(pic1_path, 'rb') as f:
+                        pic1_data = f.read()
+
+                if pic2_path and os.path.exists(pic2_path):
+                    with open(pic2_path, 'rb') as f:
+                        pic2_data = f.read()
+
                 with db_pool.get_cursor(commit=True) as cursor:
                     cursor.execute('''
                         INSERT INTO equipment
                         (sap_material_no, bfm_equipment_no, description, tool_id_drawing_no,
-                         location, master_lin, monthly_pm, six_month_pm, annual_pm)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         location, master_lin, monthly_pm, six_month_pm, annual_pm,
+                         picture_1_data, picture_2_data)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ''', (
                         entries["SAP Material No:"].get(),
                         entries["BFM Equipment No:"].get(),
@@ -17420,20 +17491,26 @@ class AITCMMSSystem:
                         entries["Master LIN:"].get(),
                         monthly_var.get(),
                         six_month_var.get(),
-                        annual_var.get()
+                        annual_var.get(),
+                        pic1_data,
+                        pic2_data
                     ))
                 messagebox.showinfo("Success", "Equipment added successfully!")
                 dialog.destroy()
                 self.refresh_equipment_list()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to add equipment: {str(e)}")
-        
+
         # Buttons
-        button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=10)
-        
+        button_frame = ttk.Frame(scrollable_frame)
+        button_frame.grid(row=len(fields)+2, column=0, columnspan=2, pady=10)
+
         ttk.Button(button_frame, text="Save", command=save_equipment).pack(side='left', padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side='left', padx=5)
+
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
     
     def edit_equipment_dialog(self):
         """Enhanced dialog to edit existing equipment with Run to Failure and Cannot Find options"""
@@ -17446,7 +17523,7 @@ class AITCMMSSystem:
         item = self.equipment_tree.item(selected[0])
         bfm_no = str(item['values'][1])  # BFM Equipment No.
 
-        # Fetch full equipment data
+        # Fetch full equipment data including photos
         try:
             with db_pool.get_cursor(commit=False) as cursor:
                 cursor.execute('SELECT * FROM equipment WHERE bfm_equipment_no = %s', (bfm_no,))
@@ -17459,12 +17536,25 @@ class AITCMMSSystem:
             messagebox.showerror("Error", f"Database error: {str(e)}")
             return
 
-        # Create edit dialog
+        # Create edit dialog with scrollable frame
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Equipment")
-        dialog.geometry("500x550")  # Made slightly taller for Cannot Find option
+        dialog.geometry("650x700")  # Made larger for photos
         dialog.transient(self.root)
         dialog.grab_set()
+
+        # Create scrollable frame
+        canvas = tk.Canvas(dialog)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
 
         # Pre-populate fields
         fields = [
@@ -17479,14 +17569,63 @@ class AITCMMSSystem:
         entries = {}
 
         for i, (label, var) in enumerate(fields):
-            ttk.Label(dialog, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
-            entry = ttk.Entry(dialog, textvariable=var, width=30)
+            ttk.Label(scrollable_frame, text=label).grid(row=i, column=0, sticky='w', padx=10, pady=5)
+            entry = ttk.Entry(scrollable_frame, textvariable=var, width=30)
             entry.grid(row=i, column=1, padx=10, pady=5)
             entries[label] = var
 
+        current_row = len(fields)
+
+        # Photo upload section
+        photo_frame = ttk.LabelFrame(scrollable_frame, text="Equipment Photos", padding=10)
+        photo_frame.grid(row=current_row, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+
+        picture_1_var = tk.StringVar()
+        picture_2_var = tk.StringVar()
+
+        # Store existing photo data
+        existing_pic1_data = equipment_data.get('picture_1_data')
+        existing_pic2_data = equipment_data.get('picture_2_data')
+
+        def browse_image(var):
+            """Browse for image file"""
+            file_path = filedialog.askopenfilename(
+                title="Select Image",
+                filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All files", "*.*")]
+            )
+            if file_path:
+                var.set(file_path)
+
+        # Picture 1
+        ttk.Label(photo_frame, text="Picture 1:").grid(row=0, column=0, sticky='w', padx=5, pady=5)
+        pic1_frame = ttk.Frame(photo_frame)
+        pic1_frame.grid(row=0, column=1, sticky='w', padx=5, pady=5)
+
+        if existing_pic1_data:
+            ttk.Label(pic1_frame, text="[Photo exists] ", foreground='green').pack(side='left')
+
+        ttk.Entry(pic1_frame, textvariable=picture_1_var, width=25).pack(side='left')
+        ttk.Button(pic1_frame, text="Browse", command=lambda: browse_image(picture_1_var)).pack(side='left', padx=5)
+
+        # Picture 2
+        ttk.Label(photo_frame, text="Picture 2:").grid(row=1, column=0, sticky='w', padx=5, pady=5)
+        pic2_frame = ttk.Frame(photo_frame)
+        pic2_frame.grid(row=1, column=1, sticky='w', padx=5, pady=5)
+
+        if existing_pic2_data:
+            ttk.Label(pic2_frame, text="[Photo exists] ", foreground='green').pack(side='left')
+
+        ttk.Entry(pic2_frame, textvariable=picture_2_var, width=25).pack(side='left')
+        ttk.Button(pic2_frame, text="Browse", command=lambda: browse_image(picture_2_var)).pack(side='left', padx=5)
+
+        ttk.Label(photo_frame, text="Leave blank to keep existing photo",
+                  font=('Arial', 8), foreground='gray').grid(row=2, column=0, columnspan=2, sticky='w', padx=5)
+
+        current_row += 1
+
         # PM type checkboxes and Equipment Status options
-        pm_frame = ttk.LabelFrame(dialog, text="PM Types & Equipment Status", padding=10)
-        pm_frame.grid(row=len(fields), column=0, columnspan=2, padx=10, pady=10, sticky='ew')
+        pm_frame = ttk.LabelFrame(scrollable_frame, text="PM Types & Equipment Status", padding=10)
+        pm_frame.grid(row=current_row, column=0, columnspan=2, padx=10, pady=10, sticky='ew')
 
         # Current equipment status
         current_status = equipment_data['status'] or 'Active'  # Status field
@@ -17627,9 +17766,25 @@ class AITCMMSSystem:
                 else:
                     new_status = 'Active'
 
+                # Handle photo uploads
+                pic1_path = picture_1_var.get()
+                pic2_path = picture_2_var.get()
+
+                pic1_data = existing_pic1_data  # Keep existing by default
+                pic2_data = existing_pic2_data
+
+                # If new photo selected, read and replace
+                if pic1_path and os.path.exists(pic1_path):
+                    with open(pic1_path, 'rb') as f:
+                        pic1_data = f.read()
+
+                if pic2_path and os.path.exists(pic2_path):
+                    with open(pic2_path, 'rb') as f:
+                        pic2_data = f.read()
+
                 # Use connection pool for database operations
                 with db_pool.get_cursor(commit=True) as cursor:
-                    # Update equipment table
+                    # Update equipment table including photos
                     cursor.execute('''
                         UPDATE equipment
                         SET sap_material_no = %s,
@@ -17640,7 +17795,9 @@ class AITCMMSSystem:
                             monthly_pm = %s,
                             six_month_pm = %s,
                             annual_pm = %s,
-                            status = %s
+                            status = %s,
+                            picture_1_data = %s,
+                            picture_2_data = %s
                         WHERE bfm_equipment_no = %s
                     ''', (
                         entries["SAP Material No:"].get(),
@@ -17652,6 +17809,8 @@ class AITCMMSSystem:
                         six_month_var.get(),
                         annual_var.get(),
                         new_status,
+                        pic1_data,
+                        pic2_data,
                         bfm_no
                     ))
 
@@ -17746,14 +17905,18 @@ class AITCMMSSystem:
                 messagebox.showerror("Error", f"Failed to update equipment: {str(e)}")
 
         # Buttons
-        button_frame = ttk.Frame(dialog)
-        button_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=15)
+        button_frame = ttk.Frame(scrollable_frame)
+        button_frame.grid(row=current_row+1, column=0, columnspan=2, pady=15)
 
         update_btn = ttk.Button(button_frame, text="Update Equipment", command=update_equipment)
         update_btn.pack(side='left', padx=10)
 
         cancel_btn = ttk.Button(button_frame, text="Cancel", command=dialog.destroy)
         cancel_btn.pack(side='left', padx=5)
+
+        # Pack canvas and scrollbar
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
     
     
     
@@ -18997,6 +19160,24 @@ class AITCMMSSystem:
                         "Ensure that AIT Sticker is applied"
                     ]
 
+            # =================== FETCH EQUIPMENT PHOTOS ===================
+                # Retrieve equipment photos from database
+                cursor.execute('''
+                    SELECT picture_1_data, picture_2_data
+                    FROM equipment
+                    WHERE bfm_equipment_no = %s
+                ''', (bfm_no,))
+
+                photo_result = cursor.fetchone()
+                picture_1_data = None
+                picture_2_data = None
+
+                if photo_result:
+                    picture_1_data = photo_result[0]
+                    picture_2_data = photo_result[1]
+                    if picture_1_data or picture_2_data:
+                        print(f"DEBUG: Equipment {bfm_no} has photos - Pic1: {'Yes' if picture_1_data else 'No'}, Pic2: {'Yes' if picture_2_data else 'No'}")
+
             # =================== EQUIPMENT INFORMATION TABLE ===================
                 equipment_data = [
                     [
@@ -19063,6 +19244,131 @@ class AITCMMSSystem:
         
                 story.append(equipment_table)
                 story.append(Spacer(1, 15))
+
+            # =================== EQUIPMENT PHOTOS SECTION ===================
+                # Display equipment photos if available
+                if picture_1_data or picture_2_data:
+                    try:
+                        photo_elements = []
+
+                        # Add section header
+                        photo_header_style = ParagraphStyle(
+                            'PhotoHeader',
+                            parent=styles['Heading2'],
+                            fontSize=11,
+                            fontName='Helvetica-Bold',
+                            alignment=1,  # Center
+                            textColor=colors.darkblue,
+                            spaceAfter=10
+                        )
+                        story.append(Paragraph("EQUIPMENT PHOTOS", photo_header_style))
+                        story.append(Spacer(1, 10))
+
+                        # Process photos
+                        photos_to_display = []
+
+                        if picture_1_data:
+                            try:
+                                from PIL import Image as PILImage
+                                import io
+
+                                # Convert binary data to PIL Image
+                                img_stream = io.BytesIO(picture_1_data)
+                                pil_img = PILImage.open(img_stream)
+
+                                # Resize if needed (max width 3 inches, max height 2.5 inches)
+                                max_width = 3 * inch
+                                max_height = 2.5 * inch
+
+                                # Calculate aspect ratio
+                                img_width, img_height = pil_img.size
+                                aspect = img_width / img_height
+
+                                if img_width > max_width or img_height > max_height:
+                                    if aspect > 1:  # Wider than tall
+                                        new_width = max_width
+                                        new_height = max_width / aspect
+                                    else:  # Taller than wide
+                                        new_height = max_height
+                                        new_width = max_height * aspect
+                                else:
+                                    new_width = img_width
+                                    new_height = img_height
+
+                                # Save to temp BytesIO for ReportLab
+                                temp_io = io.BytesIO(picture_1_data)
+
+                                # Create ReportLab Image
+                                from reportlab.platypus import Image as RLImage
+                                photo1 = RLImage(temp_io, width=new_width, height=new_height)
+                                photos_to_display.append(photo1)
+
+                                print(f"DEBUG: Added Photo 1 to PDF ({new_width/inch:.2f}\" x {new_height/inch:.2f}\")")
+                            except Exception as e:
+                                print(f"WARNING: Could not process Picture 1: {e}")
+
+                        if picture_2_data:
+                            try:
+                                from PIL import Image as PILImage
+                                import io
+
+                                # Convert binary data to PIL Image
+                                img_stream = io.BytesIO(picture_2_data)
+                                pil_img = PILImage.open(img_stream)
+
+                                # Resize if needed
+                                max_width = 3 * inch
+                                max_height = 2.5 * inch
+
+                                img_width, img_height = pil_img.size
+                                aspect = img_width / img_height
+
+                                if img_width > max_width or img_height > max_height:
+                                    if aspect > 1:
+                                        new_width = max_width
+                                        new_height = max_width / aspect
+                                    else:
+                                        new_height = max_height
+                                        new_width = max_height * aspect
+                                else:
+                                    new_width = img_width
+                                    new_height = img_height
+
+                                temp_io = io.BytesIO(picture_2_data)
+
+                                from reportlab.platypus import Image as RLImage
+                                photo2 = RLImage(temp_io, width=new_width, height=new_height)
+                                photos_to_display.append(photo2)
+
+                                print(f"DEBUG: Added Photo 2 to PDF ({new_width/inch:.2f}\" x {new_height/inch:.2f}\")")
+                            except Exception as e:
+                                print(f"WARNING: Could not process Picture 2: {e}")
+
+                        # Display photos in a table (side by side if 2 photos, centered if 1 photo)
+                        if len(photos_to_display) == 2:
+                            # Two photos side by side
+                            photo_table_data = [[photos_to_display[0], photos_to_display[1]]]
+                            photo_table = Table(photo_table_data, colWidths=[3.5*inch, 3.5*inch])
+                            photo_table.setStyle(TableStyle([
+                                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                            ]))
+                            story.append(photo_table)
+                        elif len(photos_to_display) == 1:
+                            # Single photo centered
+                            photo_table_data = [[photos_to_display[0]]]
+                            photo_table = Table(photo_table_data, colWidths=[7*inch])
+                            photo_table.setStyle(TableStyle([
+                                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                            ]))
+                            story.append(photo_table)
+
+                        story.append(Spacer(1, 15))
+
+                    except Exception as e:
+                        print(f"WARNING: Error displaying equipment photos: {e}")
+                        # Continue with PDF generation even if photos fail
 
             # =================== PM CHECKLIST TABLE ===================
                 checklist_data = [
