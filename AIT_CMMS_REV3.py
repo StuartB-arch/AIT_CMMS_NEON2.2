@@ -18269,12 +18269,16 @@ class AITCMMSSystem:
         try:
             cursor = self.conn.cursor()
 
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
+
             # Get equipment information
             cursor.execute('''
                 SELECT sap_material_no, bfm_equipment_no, description, tool_id_drawing_no,
                     location, master_lin, monthly_pm, six_month_pm, annual_pm,
                     last_monthly_pm, last_six_month_pm, last_annual_pm,
-                    next_monthly_pm, next_six_month_pm, next_annual_pm, status
+                    next_monthly_pm, next_six_month_pm, next_annual_pm, status,
+                    picture_1_data, picture_2_data
                 FROM equipment
                 WHERE bfm_equipment_no = %s
             ''', (bfm_no,))
@@ -18288,18 +18292,30 @@ class AITCMMSSystem:
             # Create dialog
             dialog = tk.Toplevel(self.root)
             dialog.title(f"PM Actions - {bfm_no}")
-            dialog.geometry("700x600")
+            dialog.geometry("900x700")  # Made larger for photos
             dialog.transient(self.root)
             dialog.grab_set()
-
-            # Equipment details frame
-            details_frame = ttk.LabelFrame(dialog, text="Equipment Details", padding=15)
-            details_frame.pack(fill='x', padx=10, pady=10)
 
             # Unpack equipment data
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
              six_month_pm, annual_pm, last_monthly, last_six_month, last_annual,
-             next_monthly, next_six_month, next_annual, status) = equipment_data
+             next_monthly, next_six_month, next_annual, status, picture_1_data, picture_2_data) = equipment_data
+
+            # Main container with horizontal layout
+            main_container = ttk.Frame(dialog)
+            main_container.pack(fill='both', expand=True, padx=10, pady=10)
+
+            # Left side - Details and schedule
+            left_frame = ttk.Frame(main_container)
+            left_frame.pack(side='left', fill='both', expand=True, padx=(0, 5))
+
+            # Right side - Photos
+            right_frame = ttk.Frame(main_container)
+            right_frame.pack(side='right', fill='both', padx=(5, 0))
+
+            # Equipment details frame
+            details_frame = ttk.LabelFrame(left_frame, text="Equipment Details", padding=15)
+            details_frame.pack(fill='x', pady=(0, 10))
 
             # Display equipment details
             row = 0
@@ -18320,8 +18336,8 @@ class AITCMMSSystem:
                 row += 1
 
             # PM Schedule Information
-            pm_frame = ttk.LabelFrame(dialog, text="PM Schedule Information", padding=15)
-            pm_frame.pack(fill='both', expand=True, padx=10, pady=5)
+            pm_frame = ttk.LabelFrame(left_frame, text="PM Schedule Information", padding=15)
+            pm_frame.pack(fill='both', expand=True, pady=5)
 
             # Create text widget for PM info
             pm_text = tk.Text(pm_frame, height=10, width=70, wrap='word', font=('Arial', 10))
@@ -18352,9 +18368,64 @@ class AITCMMSSystem:
             pm_text.insert('1.0', '\n'.join(pm_info))
             pm_text.config(state='disabled')
 
+            # Equipment Photos Section
+            photo_frame = ttk.LabelFrame(right_frame, text="Equipment Photos", padding=10)
+            photo_frame.pack(fill='both', expand=True)
+
+            from PIL import Image, ImageTk
+            import io
+
+            photos_displayed = False
+
+            # Display Picture 1
+            if picture_1_data:
+                try:
+                    image_data = io.BytesIO(picture_1_data)
+                    img = Image.open(image_data)
+
+                    # Resize image to fit
+                    max_size = (250, 250)
+                    img.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+                    photo1 = ImageTk.PhotoImage(img)
+                    label1 = ttk.Label(photo_frame, image=photo1)
+                    label1.image = photo1  # Keep a reference
+                    label1.pack(pady=5)
+
+                    ttk.Label(photo_frame, text="Picture 1", font=('Arial', 9, 'italic')).pack()
+                    photos_displayed = True
+                except Exception as e:
+                    ttk.Label(photo_frame, text=f"Error loading Picture 1: {str(e)[:30]}...",
+                             foreground='red', font=('Arial', 8)).pack(pady=5)
+
+            # Display Picture 2
+            if picture_2_data:
+                try:
+                    image_data = io.BytesIO(picture_2_data)
+                    img = Image.open(image_data)
+
+                    # Resize image to fit
+                    max_size = (250, 250)
+                    img.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+                    photo2 = ImageTk.PhotoImage(img)
+                    label2 = ttk.Label(photo_frame, image=photo2)
+                    label2.image = photo2  # Keep a reference
+                    label2.pack(pady=5)
+
+                    ttk.Label(photo_frame, text="Picture 2", font=('Arial', 9, 'italic')).pack()
+                    photos_displayed = True
+                except Exception as e:
+                    ttk.Label(photo_frame, text=f"Error loading Picture 2: {str(e)[:30]}...",
+                             foreground='red', font=('Arial', 8)).pack(pady=5)
+
+            if not photos_displayed:
+                ttk.Label(photo_frame, text="No photos available",
+                         font=('Arial', 10), foreground='gray').pack(pady=20)
+
             # Action buttons frame
             actions_frame = ttk.Frame(dialog, padding=10)
-            actions_frame.pack(fill='x', padx=10, pady=10)
+            actions_frame.pack(fill='x', side='bottom', padx=10, pady=10)
 
             # Schedule PM button
             ttk.Button(actions_frame, text="Schedule PM",
@@ -18376,6 +18447,9 @@ class AITCMMSSystem:
     def schedule_equipment_pm_dialog(self, bfm_no, equipment_data, parent_dialog):
         """Dialog to schedule a PM for specific equipment"""
         try:
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
+
             # Create schedule dialog
             schedule_dialog = tk.Toplevel(parent_dialog)
             schedule_dialog.title(f"Schedule PM - {bfm_no}")
@@ -18561,6 +18635,9 @@ class AITCMMSSystem:
         try:
             cursor = self.conn.cursor()
 
+            # Ensure bfm_no is string for TEXT column comparison
+            bfm_no = str(bfm_no)
+
             # Unpack equipment data
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
              six_month_pm, annual_pm, *_) = equipment_data
@@ -18595,9 +18672,14 @@ class AITCMMSSystem:
 
             template_data = cursor.fetchone()
 
-            # Create PDF
+            # Create PDF directory and file path
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"PM_Form_{bfm_no}_{timestamp}.pdf"
+
+            # Create PM_Forms directory if it doesn't exist
+            forms_dir = "PM_Forms"
+            os.makedirs(forms_dir, exist_ok=True)
+
+            filename = os.path.join(forms_dir, f"PM_Form_{bfm_no}_{selected_pm_type}_{timestamp}.pdf")
 
             doc = SimpleDocTemplate(filename, pagesize=letter,
                                    rightMargin=36, leftMargin=36,
