@@ -18490,11 +18490,11 @@ class AITCMMSSystem:
         # Get the PM details
         item = tree.item(selected[0])
         values = item['values']
-        bfm_no = values[0]
-        description = values[1] if len(values) > 1 else "N/A"
-        pm_type = values[2] if len(values) > 2 else "N/A"
-        scheduled_date = values[3] if len(values) > 3 else "N/A"
-        current_status = values[4] if len(values) > 4 else "N/A"
+        bfm_no = str(values[0])  # Convert to string to match TEXT column type
+        description = str(values[1]) if len(values) > 1 else "N/A"
+        pm_type = str(values[2]) if len(values) > 2 else "N/A"
+        scheduled_date = str(values[3]) if len(values) > 3 else "N/A"
+        current_status = str(values[4]) if len(values) > 4 else "N/A"
 
         # Check if already marked as Cannot Find
         if current_status == "Cannot Find":
