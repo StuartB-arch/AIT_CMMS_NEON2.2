@@ -18672,11 +18672,31 @@ class AITCMMSSystem:
 
             template_data = cursor.fetchone()
 
-            # Create PDF directory and file path
+            # Create PDF directory and file path in user's Documents folder
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-            # Create PM_Forms directory if it doesn't exist
-            forms_dir = "PM_Forms"
+            # Use user's Documents folder or home directory
+            import platform
+            try:
+                # Try to use Documents folder first (Windows-friendly)
+                if platform.system() == 'Windows':
+                    import ctypes.wintypes
+                    CSIDL_PERSONAL = 5  # My Documents
+                    SHGFP_TYPE_CURRENT = 0
+                    buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+                    ctypes.windll.shell32.SHGetFolderPathW(None, CSIDL_PERSONAL, None, SHGFP_TYPE_CURRENT, buf)
+                    documents_folder = buf.value
+                else:
+                    # For macOS/Linux, use ~/Documents if it exists, otherwise home
+                    documents_folder = os.path.join(os.path.expanduser("~"), "Documents")
+                    if not os.path.exists(documents_folder):
+                        documents_folder = os.path.expanduser("~")
+            except:
+                # Fallback to user home directory
+                documents_folder = os.path.expanduser("~")
+
+            # Create PM_Forms subdirectory
+            forms_dir = os.path.join(documents_folder, "PM_Forms")
             os.makedirs(forms_dir, exist_ok=True)
 
             filename = os.path.join(forms_dir, f"PM_Form_{bfm_no}_{selected_pm_type}_{timestamp}.pdf")
