@@ -18505,7 +18505,58 @@ class AITCMMSSystem:
             messagebox.showerror("Error", f"Failed to create schedule dialog: {str(e)}")
             traceback.print_exc()
 
-    def print_equipment_pm_form(self, bfm_no, equipment_data):
+    def show_pm_type_selection_dialog(self, bfm_no, equipment_data, available_pm_types):
+        """Show dialog to select which PM type to print"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select PM Type")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Center the dialog
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (dialog.winfo_width() // 2)
+        y = (dialog.winfo_screenheight() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        # Main frame
+        main_frame = ttk.Frame(dialog, padding="20")
+        main_frame.pack(fill='both', expand=True)
+
+        # Title
+        ttk.Label(main_frame, text="Select PM Type to Print",
+                 font=('Helvetica', 12, 'bold')).pack(pady=(0, 20))
+
+        # Equipment info
+        (sap_no, bfm, description, *_) = equipment_data
+        info_text = f"Equipment: {bfm}\n{description}"
+        ttk.Label(main_frame, text=info_text, wraplength=350).pack(pady=(0, 20))
+
+        # PM type selection
+        selected_type = tk.StringVar(value=available_pm_types[0])
+
+        for pm_type in available_pm_types:
+            ttk.Radiobutton(main_frame, text=f"{pm_type} PM",
+                          variable=selected_type, value=pm_type).pack(anchor='w', pady=5)
+
+        # Buttons frame
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(side='bottom', fill='x', pady=(20, 0))
+
+        def on_print():
+            dialog.destroy()
+            self.print_equipment_pm_form(bfm_no, equipment_data, selected_type.get())
+
+        def on_cancel():
+            dialog.destroy()
+
+        ttk.Button(button_frame, text="Print", command=on_print).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side='left', padx=5)
+
+        # Bind escape key to cancel
+        dialog.bind('<Escape>', lambda e: on_cancel())
+
+    def print_equipment_pm_form(self, bfm_no, equipment_data, selected_pm_type=None):
         """Generate and print PM form for specific equipment"""
         try:
             cursor = self.conn.cursor()
@@ -18514,13 +18565,33 @@ class AITCMMSSystem:
             (sap_no, bfm, description, tool_id, location, master_lin, monthly_pm,
              six_month_pm, annual_pm, *_) = equipment_data
 
-            # Get PM template if available
+            # If multiple PM types exist and none selected, show selection dialog
+            if selected_pm_type is None:
+                available_pm_types = []
+                if monthly_pm:
+                    available_pm_types.append('Monthly')
+                if six_month_pm:
+                    available_pm_types.append('Six Month')
+                if annual_pm:
+                    available_pm_types.append('Annual')
+
+                if len(available_pm_types) > 1:
+                    # Show selection dialog
+                    self.show_pm_type_selection_dialog(bfm_no, equipment_data, available_pm_types)
+                    return
+                elif len(available_pm_types) == 1:
+                    selected_pm_type = available_pm_types[0]
+                else:
+                    messagebox.showwarning("No PM Types", "This equipment has no PM types configured.")
+                    return
+
+            # Get PM template if available for the selected PM type
             cursor.execute('''
-                SELECT pm_type, description, tasks_description
+                SELECT pm_type, checklist_items, special_instructions
                 FROM pm_templates
-                WHERE bfm_equipment_no = %s
+                WHERE bfm_equipment_no = %s AND pm_type = %s
                 LIMIT 1
-            ''', (bfm_no,))
+            ''', (bfm_no, selected_pm_type))
 
             template_data = cursor.fetchone()
 
@@ -18573,41 +18644,47 @@ class AITCMMSSystem:
             story.append(equipment_table)
             story.append(Spacer(1, 0.3 * inch))
 
-            # PM Type checkboxes
-            story.append(Paragraph("<b>PM Type (check one):</b>", styles['Normal']))
-            story.append(Spacer(1, 0.1 * inch))
-
-            pm_checkboxes = []
-            if monthly_pm:
-                pm_checkboxes.append(['☐ Monthly PM', ''])
-            if six_month_pm:
-                pm_checkboxes.append(['☐ Six Month PM', ''])
-            if annual_pm:
-                pm_checkboxes.append(['☐ Annual PM', ''])
-
-            if pm_checkboxes:
-                pm_table = Table(pm_checkboxes, colWidths=[2 * inch, 4.5 * inch])
-                pm_table.setStyle(TableStyle([
-                    ('FONTSIZE', (0, 0), (-1, -1), 10),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 12),
-                ]))
-                story.append(pm_table)
-
+            # PM Type - show selected type
+            story.append(Paragraph(f"<b>PM Type: {selected_pm_type}</b>", styles['Normal']))
             story.append(Spacer(1, 0.3 * inch))
 
             # Work performed section
             story.append(Paragraph("<b>Work Performed / Tasks Completed:</b>", styles['Normal']))
             story.append(Spacer(1, 0.1 * inch))
 
-            if template_data and template_data[2]:
-                # Use template tasks if available
-                tasks_text = template_data[2]
-                story.append(Paragraph(tasks_text.replace('\n', '<br/>'), styles['Normal']))
-            else:
-                # Empty lines for manual entry
-                for i in range(10):
+            if template_data:
+                # Use template tasks/checklist if available
+                checklist_items = template_data[1]  # checklist_items
+                special_instructions = template_data[2]  # special_instructions
+
+                if checklist_items:
+                    # Parse checklist items if JSON
+                    import json
+                    try:
+                        items = json.loads(checklist_items) if isinstance(checklist_items, str) else checklist_items
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict):
+                                    story.append(Paragraph(f"☐ {item.get('description', item.get('task', str(item)))}", styles['Normal']))
+                                else:
+                                    story.append(Paragraph(f"☐ {str(item)}", styles['Normal']))
+                        else:
+                            story.append(Paragraph(str(checklist_items).replace('\n', '<br/>'), styles['Normal']))
+                    except:
+                        # Not JSON, treat as plain text
+                        story.append(Paragraph(str(checklist_items).replace('\n', '<br/>'), styles['Normal']))
                     story.append(Spacer(1, 0.2 * inch))
-                    story.append(Table([['_' * 100]], colWidths=[6.5 * inch]))
+
+                if special_instructions:
+                    story.append(Paragraph("<b>Special Instructions:</b>", styles['Normal']))
+                    story.append(Paragraph(str(special_instructions).replace('\n', '<br/>'), styles['Normal']))
+                    story.append(Spacer(1, 0.2 * inch))
+
+            # Add empty lines for additional notes
+            story.append(Paragraph("<b>Additional Notes:</b>", styles['Normal']))
+            for i in range(5):
+                story.append(Spacer(1, 0.2 * inch))
+                story.append(Table([['_' * 100]], colWidths=[6.5 * inch]))
 
             story.append(Spacer(1, 0.3 * inch))
 
