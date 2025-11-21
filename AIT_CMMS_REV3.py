@@ -10133,10 +10133,12 @@ class AITCMMSSystem:
                   command=self.generate_weekly_assignments).grid(row=0, column=2, padx=5)
         ttk.Button(controls_frame, text="Print PM Forms",
                   command=self.print_weekly_pm_forms).grid(row=0, column=3, padx=5)
-        ttk.Button(controls_frame, text="Export Schedule",
+        ttk.Button(controls_frame, text="Export to Excel",
                   command=self.export_weekly_schedule).grid(row=0, column=4, padx=5)
+        ttk.Button(controls_frame, text="Export to PDF",
+                  command=self.export_weekly_schedule_pdf).grid(row=0, column=5, padx=5)
         ttk.Button(controls_frame, text="Mark as Cannot Find",
-                  command=self.mark_pm_cannot_find).grid(row=0, column=5, padx=5)
+                  command=self.mark_pm_cannot_find).grid(row=0, column=6, padx=5)
 
         # Technician Exclusion Controls
         exclusion_frame = ttk.LabelFrame(self.pm_schedule_frame, text="Exclude Technicians from This Week's Schedule", padding=10)
@@ -19709,7 +19711,197 @@ class AITCMMSSystem:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export weekly schedule: {str(e)}")
-    
+
+    def export_weekly_schedule_pdf(self):
+        """Export weekly schedule to PDF"""
+        try:
+            from reportlab.lib.pagesizes import letter, landscape
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.units import inch
+            from reportlab.lib import colors
+            from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+            week_start = self.week_start_var.get()
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"Weekly_PM_Schedule_{week_start}_{timestamp}.pdf"
+
+            # Create PDF document in landscape mode for better table display
+            doc = SimpleDocTemplate(filename, pagesize=landscape(letter),
+                                rightMargin=36, leftMargin=36,
+                                topMargin=36, bottomMargin=36)
+
+            styles = getSampleStyleSheet()
+            story = []
+
+            # Title style
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=18,
+                fontName='Helvetica-Bold',
+                alignment=TA_CENTER,
+                textColor=colors.darkblue,
+                spaceAfter=20
+            )
+
+            # Header style
+            header_style = ParagraphStyle(
+                'HeaderStyle',
+                parent=styles['Normal'],
+                fontSize=10,
+                fontName='Helvetica-Bold',
+                alignment=TA_CENTER
+            )
+
+            # Cell style
+            cell_style = ParagraphStyle(
+                'CellStyle',
+                parent=styles['Normal'],
+                fontSize=9,
+                alignment=TA_LEFT
+            )
+
+            # Add title
+            story.append(Paragraph(f"Weekly PM Schedule - Week of {week_start}", title_style))
+            story.append(Spacer(1, 20))
+
+            cursor = self.conn.cursor()
+
+            # Get schedule data grouped by technician
+            cursor.execute('''
+                SELECT ws.assigned_technician, ws.bfm_equipment_no, e.description,
+                       ws.pm_type, ws.scheduled_date, ws.status
+                FROM weekly_pm_schedules ws
+                JOIN equipment e ON ws.bfm_equipment_no = e.bfm_equipment_no
+                WHERE ws.week_start_date = %s
+                ORDER BY ws.assigned_technician, ws.scheduled_date
+            ''', (week_start,))
+
+            schedule_data = cursor.fetchall()
+
+            if not schedule_data:
+                story.append(Paragraph("No PM assignments found for this week.", cell_style))
+            else:
+                # Group by technician
+                tech_assignments = {}
+                for row in schedule_data:
+                    tech_name = row[0]
+                    if tech_name not in tech_assignments:
+                        tech_assignments[tech_name] = []
+                    tech_assignments[tech_name].append(row[1:])
+
+                # Create a table for each technician
+                for tech_name in sorted(tech_assignments.keys()):
+                    assignments = tech_assignments[tech_name]
+
+                    # Technician header
+                    tech_header_style = ParagraphStyle(
+                        'TechHeader',
+                        parent=styles['Heading2'],
+                        fontSize=14,
+                        fontName='Helvetica-Bold',
+                        textColor=colors.darkblue,
+                        spaceAfter=10
+                    )
+                    story.append(Paragraph(f"{tech_name} - {len(assignments)} PMs Assigned", tech_header_style))
+
+                    # Create table data
+                    table_data = [
+                        [
+                            Paragraph('<b>BFM No</b>', header_style),
+                            Paragraph('<b>Description</b>', header_style),
+                            Paragraph('<b>PM Type</b>', header_style),
+                            Paragraph('<b>Scheduled Date</b>', header_style),
+                            Paragraph('<b>Status</b>', header_style)
+                        ]
+                    ]
+
+                    for assignment in assignments:
+                        bfm_no, description, pm_type, scheduled_date, status = assignment
+                        table_data.append([
+                            Paragraph(str(bfm_no or ''), cell_style),
+                            Paragraph(str(description or '')[:60], cell_style),  # Truncate long descriptions
+                            Paragraph(str(pm_type or ''), cell_style),
+                            Paragraph(str(scheduled_date or ''), cell_style),
+                            Paragraph(str(status or ''), cell_style)
+                        ])
+
+                    # Create table with appropriate column widths for landscape
+                    table = Table(table_data, colWidths=[1.2*inch, 4*inch, 1*inch, 1.2*inch, 1*inch])
+                    table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 10),
+                        ('FONTSIZE', (0, 1), (-1, -1), 9),
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                        ('TOPPADDING', (0, 0), (-1, -1), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                    ]))
+
+                    story.append(table)
+                    story.append(Spacer(1, 20))
+
+                # Add summary section
+                story.append(PageBreak())
+                story.append(Paragraph("Weekly PM Schedule Summary", title_style))
+                story.append(Spacer(1, 20))
+
+                summary_data = [
+                    [
+                        Paragraph('<b>Technician</b>', header_style),
+                        Paragraph('<b>Assigned PMs</b>', header_style)
+                    ]
+                ]
+
+                for tech_name in sorted(tech_assignments.keys()):
+                    summary_data.append([
+                        Paragraph(tech_name, cell_style),
+                        Paragraph(str(len(tech_assignments[tech_name])), cell_style)
+                    ])
+
+                # Total row
+                total_pms = len(schedule_data)
+                summary_data.append([
+                    Paragraph('<b>TOTAL</b>', header_style),
+                    Paragraph(f'<b>{total_pms}</b>', header_style)
+                ])
+
+                summary_table = Table(summary_data, colWidths=[4*inch, 2*inch])
+                summary_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 10),
+                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                    ('BACKGROUND', (0, 1), (-1, -2), colors.beige),
+                    ('BACKGROUND', (0, -1), (-1, -1), colors.lightgrey),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                    ('TOPPADDING', (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+
+                story.append(summary_table)
+
+            # Build PDF
+            doc.build(story)
+            messagebox.showinfo("Success", f"Weekly schedule exported to PDF: {filename}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to export weekly schedule to PDF: {str(e)}")
+            import traceback
+            traceback.print_exc()
+
     def create_pm_history_search_tab(self):
         """PM History Search tab for comprehensive equipment completion information"""
         self.pm_history_frame = ttk.Frame(self.notebook)
